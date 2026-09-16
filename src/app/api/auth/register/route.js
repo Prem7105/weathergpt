@@ -1,0 +1,183 @@
+import { NextResponse } from 'next/server';
+import connectDB from '@/lib/mongodb';
+import User from '@/models/User';
+import { setSessionCookie } from '@/lib/auth';
+import { normalizePhone, isValidPhone } from '@/lib/phone';
+import { blindIndex, decryptPrivateData, encryptPrivateData } from '@/lib/privateData';
+import { sendWelcomeEmail } from '@/lib/mailer';
+import bcrypt from 'bcryptjs';
+
+const CATEGORIES = ['farmer', 'fisherman', 'disaster_manager', 'citizen', 'other'];
+
+function getMissingAuthVariables() {
+  return ['MONGODB_URI', 'AUTH_SESSION_SECRET', 'AUTH_DATA_ENCRYPTION_KEY']
+    .filter((name) => !process.env[name]);
+}
+
+function safeUser(user) {
+  return {
+    id: String(user._id),
+    name: decryptPrivateData(user.nameEncrypted),
+    phone: decryptPrivateData(user.phoneEncrypted),
+    email: user.emailEncrypted ? decryptPrivateData(user.emailEncrypted) : '',
+    category: user.category,
+    customCategory: user.customCategory,
+    profileImage: user.profileImage || '',
+    hasPassword: true,
+  };
+}
+
+function logRegistrationError(error) {
+  const configuredSecrets = [
+    process.env.MONGODB_URI,
+    process.env.AUTH_SESSION_SECRET,
+    process.env.AUTH_DATA_ENCRYPTION_KEY,
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_AUTH_TOKEN,
+    process.env.TWILIO_VERIFY_SERVICE_SID,
+  ].filter(Boolean);
+  const message = String(error?.message || 'Unknown error').replace(
+    new RegExp(configuredSecrets.map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g'),
+    '[redacted]'
+  );
+
+  console.error('Registration failed', {
+    name: error?.name || 'UnknownError',
+    code: error?.code || null,
+    message,
+  });
+}
+
+export async function POST(request) {
+  try {
+    const missingVariables = getMissingAuthVariables();
+    if (missingVariables.length > 0) {
+      return NextResponse.json(
+        { message: `Authentication is not configured on this deployment. Add ${missingVariables.join(', ')} in Vercel Environment Variables, then redeploy.` },
+        { status: 503 }
+      );
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ message: 'The signup request was not valid JSON.' }, { status: 400 });
+    }
+
+    const { name, phone, email, password, category, customCategory, profileImage } = body || {};
+
+    if (!name || !phone || !password || !category) {
+      return NextResponse.json(
+        { message: 'Name, phone, password, and category are required.' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof name !== 'string' || name.trim().length < 2) {
+      return NextResponse.json(
+        { message: 'Name must be at least 2 characters long.' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof password !== 'string' || password.length < 8) {
+      return NextResponse.json(
+        { message: 'Password must be at least 8 characters long.' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidPhone(normalizedPhone)) {
+      return NextResponse.json({ message: 'Please provide a valid phone number.' }, { status: 400 });
+    }
+
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return NextResponse.json({ message: 'Please provide a valid email address.' }, { status: 400 });
+    }
+
+    if (!CATEGORIES.includes(category)) {
+      return NextResponse.json({ message: 'Please choose a valid category.' }, { status: 400 });
+    }
+
+    if (category === 'other' && (typeof customCategory !== 'string' || customCategory.trim().length < 2)) {
+      return NextResponse.json({ message: 'Please enter your category.' }, { status: 400 });
+    }
+
+    await connectDB();
+
+    const phoneHash = blindIndex(normalizedPhone);
+    const existingUser = await User.findOne({ phoneHash }).select('+phoneHash');
+
+    if (existingUser) {
+      return NextResponse.json(
+        { message: 'A user with this phone number already exists.' },
+        { status: 409 }
+      );
+    }
+
+    if (normalizedEmail) {
+      const existingEmail = await User.findOne({ emailHash: blindIndex(normalizedEmail) }).select('+emailHash');
+      if (existingEmail) {
+        return NextResponse.json({ message: 'An account with this email address already exists.' }, { status: 409 });
+      }
+    }
+
+    const user = await User.create({
+      nameEncrypted: encryptPrivateData(name.trim()),
+      phoneEncrypted: encryptPrivateData(normalizedPhone),
+      phoneHash,
+      passwordHash: await bcrypt.hash(password, 12),
+      ...(normalizedEmail ? { emailEncrypted: encryptPrivateData(normalizedEmail), emailHash: blindIndex(normalizedEmail) } : {}),
+      profileImage: typeof profileImage === 'string' ? profileImage.trim() : '',
+      category,
+      ...(category === 'other' ? { customCategory: customCategory.trim() } : {}),
+    });
+
+    const response = NextResponse.json({ success: true, message: 'Account created successfully.', user: safeUser(user) }, { status: 201 });
+    setSessionCookie(response, user._id);
+    if (normalizedEmail) {
+      try {
+        await sendWelcomeEmail({ to: normalizedEmail, name: name.trim() });
+      } catch (emailError) {
+        console.error('Welcome email failed:', emailError?.message || emailError);
+      }
+    }
+    return response;
+  } catch (error) {
+    if (error?.code === 11000) {
+      return NextResponse.json({ message: 'An account with those details already exists.' }, { status: 409 });
+    }
+
+    if (error?.name === 'MongooseServerSelectionError' || error?.name === 'MongoServerSelectionError' || error?.message?.includes('querySrv')) {
+      console.error('Registration database connection failed:', error.name);
+      return NextResponse.json(
+        { message: 'Unable to connect to the account database. Check MongoDB Atlas Network Access and the MONGODB_URI in Vercel, then redeploy.' },
+        { status: 503 }
+      );
+    }
+
+    if (error?.name === 'ValidationError') {
+      return NextResponse.json(
+        { message: 'Some account details are invalid. Please check the form and try again.' },
+        { status: 400 }
+      );
+    }
+
+    if (error?.message?.includes('is not configured') || error?.message?.includes('must be a 32-byte')) {
+      return NextResponse.json(
+        { message: 'Authentication is not configured correctly. Check MONGODB_URI, AUTH_SESSION_SECRET, and AUTH_DATA_ENCRYPTION_KEY in Vercel Environment Variables.' },
+        { status: 503 }
+      );
+    }
+
+    logRegistrationError(error);
+
+    return NextResponse.json(
+      { message: 'Unable to create the account. Check the Vercel function logs for the registration error.' },
+      { status: 500 }
+    );
+  }
+}

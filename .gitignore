@@ -1,0 +1,34 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Next.js build output
+/.next/
+/out/
+
+# Production build artifacts
+build
+dist
+
+# Environment variables
+.env*.local
+.env
+.vercel
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Android / Gradle artifacts
+.gradle
+android/.gradle
+android/app/build
+android/build
+
+# OS metadata
+.DS_Store
+Thumbs.db
+*.pem

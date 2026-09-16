@@ -1,0 +1,107 @@
+{
+  "model": "short_term_precipitation",
+  "modelVersion": "precipitation-hgb-20260909220952",
+  "algorithm": "HistGradientBoostingRegressor",
+  "features": [
+    "precipitation",
+    "temperature_2m",
+    "apparent_temperature",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "surface_pressure",
+    "cloud_cover",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+    "precip_lag_1h",
+    "precip_lag_3h",
+    "precip_lag_6h",
+    "precip_roll_3h",
+    "precip_roll_6h"
+  ],
+  "target": "precipitation at t+1 hour",
+  "trainingPeriod": {
+    "start": "2022-01-01",
+    "end": "2024-12-31"
+  },
+  "locations": [
+    "Mumbai",
+    "New Delhi",
+    "Pune",
+    "Chennai",
+    "Kolkata",
+    "Bengaluru",
+    "Hyderabad",
+    "Ahmedabad"
+  ],
+  "samples": {
+    "downloaded": 210432,
+    "retained": 210376,
+    "train": 147263,
+    "validation": 31556,
+    "test": 31557
+  },
+  "metrics": {
+    "persistence": {
+      "mae": 0.23042114269417246,
+      "rmse": 0.9533000241707285,
+      "r2": 0.1503285337864485,
+      "rain_precision": 0.71953544808459,
+      "rain_recall": 0.7199098161637183,
+      "rain_f1": 0.7197225834416991,
+      "rain_auc": 0.8972596098634488
+    },
+    "ml": {
+      "mae": 0.22930362560159237,
+      "rmse": 0.8008804842244536,
+      "r2": 0.4003093912267044,
+      "rain_precision": 0.49508656995788486,
+      "rain_recall": 0.9174471037114117,
+      "rain_f1": 0.6431219986626953,
+      "rain_auc": 0.934840310232526
+    }
+  },
+  "drivers": [
+    {
+      "feature": "precipitation",
+      "importance": 0.06071250412693638
+    },
+    {
+      "feature": "apparent_temperature",
+      "importance": 0.008640534542900471
+    },
+    {
+      "feature": "surface_pressure",
+      "importance": 0.008610329090124352
+    },
+    {
+      "feature": "dew_point_2m",
+      "importance": 0.005967782993884711
+    },
+    {
+      "feature": "precip_roll_3h",
+      "importance": 0.005704769859612269
+    },
+    {
+      "feature": "temperature_2m",
+      "importance": 0.005644738066380411
+    },
+    {
+      "feature": "wind_direction_10m",
+      "importance": 0.0025346348078598147
+    },
+    {
+      "feature": "day_sin",
+      "importance": 0.0023345185396214754
+    }
+  ],
+  "limitations": [
+    "Predicts precipitation, not floods",
+    "Performance varies by location and weather regime",
+    "Open-Meteo historical observations are the source"
+  ],
+  "trainedAt": "2026-09-09T22:09:52.512117Z"
+}
