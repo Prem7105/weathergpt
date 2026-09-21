@@ -8,7 +8,9 @@ if (!globalMongoose.__weathergptMongoose) {
 
 export default async function connectDB() {
   const mongodbUri = process.env.MONGODB_URI;
-  if (!mongodbUri) throw new Error('MONGODB_URI is not configured.');
+  if (!mongodbUri || mongodbUri.includes('YOUR_PASSWORD') || mongodbUri.includes('<PASSWORD>') || mongodbUri.includes('CHANGE_ME') || mongodbUri.includes('YOUR_PASS')) {
+    throw new Error('MONGODB_URI is not configured or contains a placeholder password.');
+  }
 
   const cached = globalMongoose.__weathergptMongoose;
 

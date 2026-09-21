@@ -9,6 +9,7 @@ export default function RiskIntelligenceCard({
   persona = 'citizen',
   language = 'english',
   onSelectScenario,
+  onResetDemo,
   activeScenario = null,
   onSimulateSms,
   isOffline = false,
@@ -19,14 +20,16 @@ export default function RiskIntelligenceCard({
 
   const risk = riskData?.risk || riskData;
   const alert = riskData?.alert;
+  const ml = riskData?.ml;
   const incidents = riskData?.incidents?.incidents || (Array.isArray(riskData?.incidents) ? riskData.incidents : []);
   const incidentAdvisory = riskData?.incidents?.advisory;
   const decision = risk?.impactDecision?.decision;
   const impacts = risk?.impactDecision?.impacts || [];
   const drivers = risk?.factors || risk?.drivers || [];
-  const dataStatus = isOffline ? 'offline' : (riskData?.dataStatus || 'live');
+  const dataStatus = isOffline ? 'OFFLINE-CACHED' : (riskData?.dataStatus || 'NOT-CONFIGURED');
   const level = risk?.level || 'low';
   const hazard = risk?.type || risk?.hazard || 'weather';
+  const score = risk?.score != null ? Number(risk.score).toFixed(2) : (risk?.riskValue != null ? Number(risk.riskValue).toFixed(2) : '0.00');
 
   const peakTime = risk?.peakRisk?.time
     ? new Date(risk.peakRisk.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -60,20 +63,20 @@ export default function RiskIntelligenceCard({
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.pipelineTrace}>
-            WEATHER ➔ RISK ➔ IMPACT ➔ REALITY ➔ DECISION
+            WEATHER ➔ RISK ➔ IMPACT ➔ GROUND REALITY ➔ DECISION ➔ ACTION ➔ ALERT
           </div>
           <h2 className={styles.title}>
             <span>{hazard === 'flood' ? '🌊' : hazard === 'heat' ? '☀️' : hazard === 'wind' ? '💨' : '⚠️'}</span>
             <span>{hazard.toUpperCase()} INTELLIGENCE</span>
             <span className={`${styles.levelBadge} ${getLevelBadgeClass(level)}`}>
-              {level.toUpperCase()}
+              {level.toUpperCase()} (Score: {score})
             </span>
           </h2>
         </div>
 
         <div className={styles.headerRight}>
-          <span className={`${styles.statusPill} ${isOffline ? styles.statusOffline : activeScenario ? styles.statusDemo : styles.statusLive}`}>
-            {isOffline ? `OFFLINE · Cached` : activeScenario ? `DEMO SCENARIO` : `LIVE · Open-Meteo`}
+          <span className={`${styles.statusPill} ${dataStatus === 'OFFLINE-CACHED' ? styles.statusOffline : dataStatus === 'DEMO-SCENARIO' ? styles.statusDemo : styles.statusLive}`}>
+            {dataStatus === 'LIVE' ? 'LIVE · Open-Meteo' : dataStatus.replaceAll('-', ' ')}
           </span>
           {offlineSyncTime && (
             <span className={styles.syncTime}>Last sync: {offlineSyncTime}</span>
@@ -81,7 +84,7 @@ export default function RiskIntelligenceCard({
         </div>
       </div>
 
-      {/* Scenario Switcher Bar */}
+      {/* Scenario Switcher & Reset Bar */}
       <div className={styles.scenarioBar}>
         <span className={styles.scenarioLabel}>Intelligence Mode:</span>
         <button
@@ -112,13 +115,22 @@ export default function RiskIntelligenceCard({
         >
           💨 Demo: High Wind
         </button>
+        {onResetDemo && (
+          <button
+            className={`${styles.scenarioBtn} ${styles.resetDemoBtn}`}
+            onClick={onResetDemo}
+            title="Reset Golden Demo Scenario (Ahmedabad Heavy Rain / Flood Risk)"
+          >
+            🔄 Reset Demo
+          </button>
+        )}
       </div>
 
-      {/* Core Grid: WHY (Drivers) & WHAT (Impacts) */}
+      {/* 6-Question SIH Judge-First Grid */}
       <div className={styles.grid}>
-        {/* WHY: Risk Drivers */}
+        {/* Q4: WHY IS THE RISK HIGH? (Drivers) */}
         <div className={styles.card}>
-          <div className={styles.cardKicker}>WHY RISK IS {level.toUpperCase()}</div>
+          <div className={styles.cardKicker}>4. WHY IS RISK {level.toUpperCase()}? (SCORE: {score})</div>
           <div className={styles.driversList}>
             {drivers.length > 0 ? (
               drivers.map((driver, idx) => (
@@ -139,9 +151,9 @@ export default function RiskIntelligenceCard({
           </div>
         </div>
 
-        {/* WHAT: Potential Impacts */}
+        {/* Q3: WHERE IS THE IMPACT? (Impacts) */}
         <div className={styles.card}>
-          <div className={styles.cardKicker}>WHAT WILL BE IMPACTED</div>
+          <div className={styles.cardKicker}>3. WHERE IS THE IMPACT?</div>
           <ul className={styles.impactList}>
             {impacts.length > 0 ? (
               impacts.map((imp, idx) => (
@@ -156,10 +168,48 @@ export default function RiskIntelligenceCard({
         </div>
       </div>
 
-      {/* DECISION & ACTION (Persona Tailored) */}
+      {/* ML PREDICTION & UNCERTAINTY CARD */}
+      {ml && ml.enabled && (
+        <div className={styles.mlBox}>
+          <div className={styles.mlHeader}>
+            <span className={styles.mlTitle}>🤖 ML PREDICTION & CALIBRATED UNCERTAINTY (T+1h)</span>
+            <span className={styles.mlBadge}>{ml.algorithm || 'HistGradientBoosting'}</span>
+          </div>
+          <div className={styles.mlGrid}>
+            <div className={styles.mlStat}>
+              <span className={styles.mlStatLabel}>Predicted Rain (T+1h):</span>
+              <span className={styles.mlStatVal}>{Number(ml.predictedPrecipitationMm ?? 0).toFixed(1)} mm</span>
+            </div>
+            {ml.predictionInterval && (
+              <div className={styles.mlStat}>
+                <span className={styles.mlStatLabel}>90% Prediction Interval:</span>
+                <span className={styles.mlStatVal}>[{ml.predictionInterval.lower}, {ml.predictionInterval.upper}] mm</span>
+              </div>
+            )}
+            {ml.hazardClassification && (
+              <div className={styles.mlStat}>
+                <span className={styles.mlStatLabel}>Hazard Tier / P(Rain &gt; 10mm):</span>
+                <span className={styles.mlStatVal}>
+                  {ml.hazardClassification.hazardClass} ({(ml.hazardClassification.probability * 100).toFixed(0)}%)
+                </span>
+              </div>
+            )}
+            {ml.uncertainty && (
+              <div className={styles.mlStat}>
+                <span className={styles.mlStatLabel}>Uncertainty / Confidence:</span>
+                <span className={styles.mlStatVal}>
+                  {ml.uncertainty.level} ({(ml.uncertainty.confidenceScore * 100).toFixed(0)}%)
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Q5: WHAT SHOULD I DO? (Persona Tailored Decision) */}
       <div className={styles.decisionBox}>
         <div className={styles.decisionHeader}>
-          <span className={styles.decisionRole}>ACTIONABLE DECISION ({persona.toUpperCase()}):</span>
+          <span className={styles.decisionRole}>5. WHAT SHOULD I DO? ({persona.toUpperCase()}):</span>
           <span className={styles.decisionPriority}>Priority: {decision?.priority?.toUpperCase() || 'MONITOR'}</span>
         </div>
         <div className={styles.decisionContent}>
@@ -191,7 +241,19 @@ export default function RiskIntelligenceCard({
         </div>
       )}
 
-      {/* Action Footer: Link to Map & SMS simulation */}
+      {incidents.length === 0 && riskData?.incidents?.dataStatus && riskData.incidents.dataStatus !== 'LIVE' && (
+        <div className={styles.realityBox}>
+          <div className={styles.realityHeader}>
+            <span className={styles.realityTitle}>GROUND REALITY</span>
+            <span className={styles.verificationPill}>{riskData.incidents.dataStatus.replaceAll('-', ' ')}</span>
+          </div>
+          <div className={styles.realityBody}>
+            <p>No verified nearby incidents are available while the incident data source is degraded.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Q6: WHAT HAS THE SYSTEM ALERTED? & Action Footer */}
       <div className={styles.footerBar}>
         <Link href="/risk" className={styles.mapLinkBtn}>
           🗺️ Open Full Risk Map & Spatial Heatmap ➔
@@ -202,13 +264,13 @@ export default function RiskIntelligenceCard({
           disabled={smsSending}
           title="Simulate dispatching a 160-char SMS alert to a feature phone"
         >
-          {smsSending ? '⏳ Dispatching...' : '📱 Simulate Feature-Phone SMS'}
+          {smsSending ? '⏳ Dispatching...' : '📱 6. Simulate Last-Mile SMS Alert'}
         </button>
       </div>
 
       {smsStatus && (
         <div className={styles.smsAlertNotice}>
-          <strong>SMS Payload ({smsStatus.mode}):</strong> {smsStatus.body}
+          <strong>SMS Dispatched ({smsStatus.mode}):</strong> {smsStatus.body}
           <br /><small>{smsStatus.note || `Message Sid: ${smsStatus.messageId}`}</small>
         </div>
       )}

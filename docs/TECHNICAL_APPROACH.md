@@ -75,7 +75,7 @@ flowchart TB
         UI_WEB["Next.js Responsive Web UI<br/>(PWA / React 18)"]
         UI_MOB["Android Capacitor Shell<br/>(com.devashish.weathergpt)"]
         VOICE_IN["Web Speech STT<br/>(6 Indian Languages)"]
-        SMS_GSM["GSM / Feature Phone Client<br/>(Concise 160-char SMS)"]
+        SMS["Twilio SMS<br/>(when configured)"]
     end
 
     subgraph API_GATEWAY ["Application & Routing Tier (Next.js 14 App Router)"]
@@ -116,13 +116,13 @@ flowchart TB
         MONGO_DB[("MongoDB Atlas<br/>Users • Incidents • Subscriptions • History")]
         SW_CACHE["Service Worker Cache<br/>(Static Assets & SWR Data Cache)"]
         WEB_PUSH["Web Push Gateway (VAPID)"]
-        TWILIO_GW["Twilio Telephony & SMS Gateway"]
+        TWILIO_GW["Twilio SMS Gateway"]
     end
 
     UI_WEB --> API_GATEWAY
     UI_MOB --> API_GATEWAY
     VOICE_IN --> CHAT_ROUTER
-    SMS_GSM <--> TWILIO_GW
+    SMS <--> TWILIO_GW
 
     API_GATEWAY --> DATA_ACQUISITION
     DATA_ACQUISITION --> CORE_ENGINE
@@ -153,7 +153,7 @@ flowchart TB
    * Measurement Grounding Guard validating all numeric claims before presenting answers to the user.
 5. **Persistence & Last-Mile Delivery:**
    * MongoDB storing users, field-level encrypted PII, incidents, and push subscriptions.
-   * VAPID Web Push notifications and Twilio SMS/voice alert dispatch.
+   * VAPID Web Push notifications and Twilio SMS alert dispatch.
 
 ---
 
@@ -339,8 +339,8 @@ The Persona Engine applies tailored standard operating procedures (SOPs) based o
 
 | Persona | Relevant Meteorological Focus | Projected Physical Impact | Prescribed Actionable Directive | Alert Delivery Behavior |
 | :--- | :--- | :--- | :--- | :--- |
-| 🌾 **Farmer** | Soil moisture saturation, rainfall rate, wind speed | Standing water causing crop root anoxia, spray wash-off | "Drain field runoff immediately. Postpone chemical sprays and urea top-dressing for 48 hours." | SMS + Voice IVR (Urgent Agromet Advisory) |
-| 🎣 **Fisherman** | Coastal wind velocity (knots), wave height, squalls | Sea roughness, capsizing danger in near-shore waters | "Halt near-shore and deep-sea craft departures. Secure coastal gear and mooring lines." | Voice IVR + Push Alert |
+| 🌾 **Farmer** | Soil moisture saturation, rainfall rate, wind speed | Standing water causing crop root anoxia, spray wash-off | "Drain field runoff immediately. Postpone chemical sprays and urea top-dressing for 48 hours." | In-app + Twilio SMS when configured |
+| 🎣 **Fisherman** | Coastal wind velocity (knots), wave height, squalls | Sea roughness, capsizing danger in near-shore waters | "Halt near-shore and deep-sea craft departures. Secure coastal gear and mooring lines." | Push + in-app alert |
 | 🚚 **Logistics** | Visibility, road waterlogging, underpass clearance | Route delays, freight moisture damage, chokepoints | "Reroute transit away from low-elevation ring underpasses. Halt freight where water exceeds 25 cm." | In-App Dashboard + SMS Alert |
 | 🏗️ **Construction** | Gust speed, precipitation accumulation, trench status | Excavation collapse, crane stability risk, curing failure | "Halt deep trench excavation. Suspend scaffolding work; dewater foundation sumps." | In-App Alert |
 | 👤 **Citizen** | Commute safety, localized drainage, rain onset | Underpass submersion, road traffic slowdowns | "Avoid low-lying underpasses. Work remotely if possible; keep emergency supplies." | Web Push + Native Notification |
@@ -513,7 +513,7 @@ flowchart TD
 │ • Service Worker caching for   │ • Dedicated Raspberry Pi / Linux       │
 │   static assets & UI.          │   edge appliance in village Panchayat. │
 │ • Stale-While-Revalidate data  │ • Embedded Ollama LLM + local LoRa /   │
-│   cache for `/api/risk`.       │   GSM modem for broadcast.             │
+│   cache for `/api/risk`.       │   Local structured AI evaluation.       │
 │ • Local deterministic rules.   │ • Direct VHF weather receiver mesh.    │
 └────────────────────────────────┴────────────────────────────────────────┘
 ```
@@ -559,7 +559,7 @@ When running in an offline environment or air-gapped emergency operations center
 The SMS Engine (`src/lib/smsService.js`) delivers critical weather warnings to non-smartphone feature phone users:
 
 * **Channel 1 (Twilio API):** Dispatches real SMS messages when `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` are configured.
-* **Channel 2 (Simulated Log Dispatch):** When operating in local test/demonstration mode without live telephony credentials, the system records formatted 160-character payloads to operational logs with simulated delivery receipts (`simulated-delivered`).
+* **Unconfigured mode:** The service returns `NOT-CONFIGURED`; an optional test formatting response is labelled `SIMULATED` and confirms that no SMS was sent.
 * **Payload Constraint:** Strict 160-character limit ensuring single-segment SMS delivery without truncation:
 
 ```
@@ -568,12 +568,12 @@ The SMS Engine (`src/lib/smsService.js`) delivers critical weather warnings to n
 
 ---
 
-## 17. Voice & Telephony Engine
+## 17. Browser Speech Interface
 
-The Voice Service (`src/lib/voiceService.js` & `src/app/api/tts/route.js`) powers accessibility for low-literacy users:
+Browser speech services (`src/lib/speech.js` and `src/app/api/tts/route.js`) support the conversational interface only:
 
 1. **Serverless Audio Streamer (`/api/tts`):** Takes Indian-language text, expands domain symbols, partitions into $\le 150$-character phonetic sub-chunks, queries TTS endpoints, and concatenates audio into a streaming `audio/mpeg` response.
-2. **IVR Telephony Architecture:** Uses Twilio Voice TwiML formatting to trigger automated outbound warning calls delivering synthesized agromet voice advisories.
+2. **Scope boundary:** GSM modem and IVR/automated call delivery are removed from the active product scope.
 
 ---
 
@@ -782,7 +782,7 @@ Every card, notification, and response in WeatherGPT displays an explicit **Data
 | 🟢 **LIVE** | Sourced in real time from live API endpoints with active timestamps. | Production deployment with live internet connectivity. |
 | 🟡 **DEMO SCENARIO** | Controlled simulation data generated for testing. | SIH demonstration of extreme cyclones / flood incidents. |
 | 🔵 **OFFLINE - CACHED** | Stored in local Service Worker cache during network loss. | Disconnected or bandwidth-constrained field operations. |
-| ⚪ **SIMULATED DISPATCH**| Formatted delivery logged locally without carrier billing. | Development / demonstration mode for SMS and IVR calls. |
+| ⚪ **SIMULATED**| Formatting-only result; no message was sent. | Development/testing when Twilio SMS is unavailable. |
 
 ---
 
@@ -909,7 +909,7 @@ Every card, notification, and response in WeatherGPT displays an explicit **Data
 **Answer:** Every incident schema (`src/models/Incident.js`) records a `verification` grade (`OFFICIAL`, `CORROBORATED`, `REPORTED`, `COMMUNITY_REPORT`) and a `locationConfidence` score ($\ge 0.5$). Uncorroborated reports are filtered out of automated emergency routing decisions.
 
 ### Q12: Can WeatherGPT deliver alerts to rural feature phone users?
-**Answer:** Yes. The SMS Engine (`src/lib/smsService.js`) and Voice Engine (`src/lib/voiceService.js`) format critical advisories into single-segment 160-character SMS text and synthesized local-language voice telephony calls.
+**Answer:** When Twilio SMS is configured, the SMS Engine (`src/lib/smsService.js`) submits a concise message to Twilio. Without it, WeatherGPT clearly returns a non-delivery state. GSM modem and IVR/automated calls are not part of this product scope.
 
 ### Q13: What happens if the primary Google Gemini API fails?
 **Answer:** The chat router (`src/app/api/chat/route.js`) cascades automatically through a multi-tier fallback sequence: Gemini $2.0 \rightarrow$ Claude $3.5 \rightarrow$ GPT-4o-mini $\rightarrow$ Local Ollama $\rightarrow$ Deterministic Agromet Template Engine.

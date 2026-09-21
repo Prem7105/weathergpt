@@ -11,7 +11,8 @@ export default function Header({
   onOpenCompare,
   onClearChat,
   onOpenAccount,
-  authenticatedUser
+  authenticatedUser,
+  onOpenSettings
 }) {
   const avatarSrc = authenticatedUser?.profileImage || '/default-avatar.svg';
 
@@ -52,6 +53,14 @@ export default function Header({
           title="Clear Chat History"
         >
           {i18n.clear}
+        </button>
+        <button
+          className="header-btn"
+          onClick={onOpenSettings}
+          title="Settings"
+          aria-label="Settings"
+        >
+          ⚙️
         </button>
       </div>
     </header>

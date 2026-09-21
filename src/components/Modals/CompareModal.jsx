@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { geocodeAddress } from '@/lib/geocoding';
 import { fetchGoogleCurrentWeather, fetchOpenMeteoData, normalizeGoogleWeather, normalizeOpenMeteoWeather, getWeatherEmoji } from '@/lib/weatherApi';
+import { calculateWeatherRisk, buildImpactDecision } from '@/lib/riskEngine';
 
 export default function CompareModal({
   isOpen,
@@ -14,9 +15,28 @@ export default function CompareModal({
 }) {
   const [compareCityQuery, setCompareCityQuery] = useState('');
   const [compareWeatherData, setCompareWeatherData] = useState(null);
+  const [compareRiskData, setCompareRiskData] = useState(null);
   const [isCompareLoading, setIsCompareLoading] = useState(false);
 
   if (!isOpen) return null;
+
+  // Calculate current city risk
+  const currentCityRisk = weather ? calculateWeatherRisk({
+    current: {
+      temperature: weather.temp,
+      apparentTemperature: weather.feelsLike,
+      humidity: weather.humidity,
+      windSpeed: weather.windSpeed
+    },
+    hourly: []
+  }) : null;
+
+  const currentCityImpact = currentCityRisk ? buildImpactDecision({
+    hazard: currentCityRisk.type || 'weather',
+    score: currentCityRisk.score,
+    level: currentCityRisk.level,
+    persona: 'citizen'
+  }) : null;
 
   const handleFetchCompareCity = async (targetCity) => {
     const query = (targetCity !== undefined ? targetCity : compareCityQuery).trim();
@@ -30,24 +50,46 @@ export default function CompareModal({
 
     if (geo) {
       let compW = null;
+      let compRisk = null;
       try {
         const curRes = await fetchGoogleCurrentWeather(geo.lat, geo.lng);
         compW = normalizeGoogleWeather(curRes, geo.city, []);
+        compW.timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (gErr) {
         console.warn('Google Weather compare request failed, using Open-Meteo:', gErr);
         try {
           const meteo = await fetchOpenMeteoData(geo.lat, geo.lng);
           compW = normalizeOpenMeteoWeather(meteo, geo.city);
+          compW.timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } catch (mErr) {
           console.error('All compare weather providers failed:', mErr);
         }
       }
 
       if (compW) {
+        compRisk = calculateWeatherRisk({
+          current: {
+            temperature: compW.temp,
+            apparentTemperature: compW.feelsLike,
+            humidity: compW.humidity,
+            windSpeed: compW.windSpeed
+          },
+          hourly: []
+        });
+
+        const compImpact = buildImpactDecision({
+          hazard: compRisk.type || 'weather',
+          score: compRisk.score,
+          level: compRisk.level,
+          persona: 'citizen'
+        });
+
         setCompareWeatherData(compW);
-        if (showToast) showToast(`✅ Comparison loaded for ${compW.city}`);
+        setCompareRiskData({ risk: compRisk, impact: compImpact });
+        if (showToast) showToast(`✅ Independent comparison loaded for ${compW.city}`);
       } else {
         setCompareWeatherData(null);
+        setCompareRiskData(null);
         if (showToast) showToast(`Failed to fetch weather for "${geo.city}".`);
       }
     } else {
@@ -56,7 +98,7 @@ export default function CompareModal({
     setIsCompareLoading(false);
   };
 
-  const quickCities = ['Mumbai', 'Chennai', 'Kolkata', 'Bengaluru', 'Jaipur', 'Hyderabad'];
+  const quickCities = ['Ahmedabad', 'Mumbai', 'Chennai', 'Kolkata', 'Bengaluru', 'Jaipur', 'Hyderabad'];
 
   return (
     <div className="compare-backdrop" onClick={onClose}>
@@ -93,12 +135,22 @@ export default function CompareModal({
                   <span className="metric-value">💨 {weather.windSpeed} km/h ({weather.windDirection})</span>
                 </div>
                 <div className="compare-metric-row">
-                  <span className="metric-label">{i18n.uv}</span>
-                  <span className="metric-value">☀️ {weather.uvIndex}</span>
+                  <span className="metric-label">Risk Profile</span>
+                  <span className="metric-value">
+                    <strong>{currentCityRisk?.level?.toUpperCase()}</strong> ({Math.round((currentCityRisk?.score || 0) * 100)}%)
+                  </span>
                 </div>
                 <div className="compare-metric-row">
-                  <span className="metric-label">Visibility</span>
-                  <span className="metric-value">👁️ {weather.visibility} km</span>
+                  <span className="metric-label">Primary Impact</span>
+                  <span className="metric-value" style={{ fontSize: '0.85rem' }}>
+                    {currentCityImpact?.impacts?.[0] || 'Standard municipal conditions.'}
+                  </span>
+                </div>
+                <div className="compare-metric-row">
+                  <span className="metric-label">Source &amp; Status</span>
+                  <span className="metric-value">
+                    <small>{weather.source === 'google' ? 'Google Weather' : 'Open-Meteo'} · LIVE</small>
+                  </span>
                 </div>
               </div>
             ) : (
@@ -144,7 +196,7 @@ export default function CompareModal({
             </div>
 
             {isCompareLoading ? (
-              <div className="compare-loading-text">Fetching weather data...</div>
+              <div className="compare-loading-text">Fetching independent city weather...</div>
             ) : compareWeatherData ? (
               <div>
                 <div className="compare-metric-row">
@@ -168,12 +220,22 @@ export default function CompareModal({
                   <span className="metric-value">💨 {compareWeatherData.windSpeed} km/h ({compareWeatherData.windDirection})</span>
                 </div>
                 <div className="compare-metric-row">
-                  <span className="metric-label">{i18n.uv}</span>
-                  <span className="metric-value">☀️ {compareWeatherData.uvIndex}</span>
+                  <span className="metric-label">Risk Profile</span>
+                  <span className="metric-value">
+                    <strong>{compareRiskData?.risk?.level?.toUpperCase()}</strong> ({Math.round((compareRiskData?.risk?.score || 0) * 100)}%)
+                  </span>
                 </div>
                 <div className="compare-metric-row">
-                  <span className="metric-label">Visibility</span>
-                  <span className="metric-value">👁️ {compareWeatherData.visibility} km</span>
+                  <span className="metric-label">Primary Impact</span>
+                  <span className="metric-value" style={{ fontSize: '0.85rem' }}>
+                    {compareRiskData?.impact?.impacts?.[0] || 'Standard municipal conditions.'}
+                  </span>
+                </div>
+                <div className="compare-metric-row">
+                  <span className="metric-label">Source &amp; Status</span>
+                  <span className="metric-value">
+                    <small>{compareWeatherData.source === 'google' ? 'Google Weather' : 'Open-Meteo'} · LIVE · {compareWeatherData.timestamp}</small>
+                  </span>
                 </div>
               </div>
             ) : (

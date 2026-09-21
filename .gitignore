@@ -32,3 +32,4 @@ android/build
 .DS_Store
 Thumbs.db
 *.pem
+.venv/

@@ -1,11 +1,9 @@
 /**
  * WeatherGPT SMS Service
  * 
- * Provides resilient last-mile emergency alert delivery to feature phones.
- * Supports:
- * 1. Twilio SMS Cloud Gateway (online)
- * 2. GSM Modem AT-Command Gateway (offline edge hardware: Edge device -> SIM -> GSM network -> feature phone)
- * 3. Transparent Simulated Demo mode with honest status reporting
+ * Twilio is the only SMS delivery provider in the active product scope.
+ * When it is unavailable, this service returns a clearly labelled non-delivery
+ * result; it never represents a formatted payload as a sent message.
  */
 
 import twilio from 'twilio';
@@ -17,7 +15,7 @@ function formatSmsText({ alert, persona = 'citizen', language = 'english' }) {
   const time = alert?.expectedTime ? ` Peak: ${new Date(alert.expectedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
   
   // Concise SMS payload under 160 characters for maximum feature phone compatibility
-  return `[WeatherGPT ${level} ${hazard} ALERT]${time} ${action} [IMD/Open-Meteo verified]`;
+  return `[WeatherGPT ${level} ${hazard} ALERT]${time} ${action} [Open-Meteo]`.slice(0, 160);
 }
 
 export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', language = 'english', forceSimulated = false }) {
@@ -42,7 +40,7 @@ export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', l
 
       return {
         success: true,
-        mode: 'twilio-live',
+        mode: 'TWILIO-ACCEPTED',
         provider: 'Twilio SMS',
         messageId: message.sid,
         recipient: cleanPhone,
@@ -61,18 +59,16 @@ export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', l
     }
   }
 
-  // 2. Edge GSM Modem Gateway Format (Hardware Interface)
-  const gsmAtPayload = `AT+CMGF=1\r\nAT+CMGS="${cleanPhone}"\r\n${smsBody}\x1A`;
-
-  // 3. Transparent Simulated Mode (Default for evaluation / unconfigured environments)
+  // A test may request formatting-only output, but it is not delivery.
   return {
-    success: true,
-    mode: 'simulated-demo',
-    provider: 'Simulated Last-Mile Edge Gateway',
+    success: false,
+    mode: forceSimulated ? 'SIMULATED' : 'NOT-CONFIGURED',
+    provider: 'Twilio SMS',
     recipient: cleanPhone,
     body: smsBody,
-    edgeGsmCommand: gsmAtPayload,
-    note: 'Simulated delivery for audit/demo. Real delivery requires TWILIO_ACCOUNT_SID or connected GSM serial modem.',
+    note: forceSimulated
+      ? 'Formatting simulation only. No SMS was sent.'
+      : 'Twilio SMS is not configured. No SMS was sent.',
     timestamp: new Date().toISOString(),
   };
 }

@@ -3,8 +3,24 @@ import { validateGroundedMeasurements } from '@/lib/groundingGuard';
 import { retrieveKnowledge, formatRAGContextForPrompt } from '@/lib/ragService';
 import { generateOllamaExplanation } from '@/lib/ollamaService';
 
+const chatRateLimitMap = new Map();
+
 export async function POST(request) {
   try {
+    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const now = Date.now();
+    const windowStart = now - 60000;
+    
+    for (const [key, value] of chatRateLimitMap.entries()) {
+      if (value.timestamp < windowStart) chatRateLimitMap.delete(key);
+    }
+
+    const currentRate = chatRateLimitMap.get(ip) || { count: 0, timestamp: now };
+    if (currentRate.count >= 30) {
+      return NextResponse.json({ error: 'Too many requests.' }, { status: 429 });
+    }
+    chatRateLimitMap.set(ip, { count: currentRate.count + 1, timestamp: currentRate.timestamp });
+
     const { systemPrompt, conversationHistory, persona, language, weather, userQuery, forecast, risk, impact, decision, alert, ml, incidents } = await request.json();
 
     // RAG retrieval
@@ -23,30 +39,41 @@ export async function POST(request) {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey && geminiKey.trim()) {
       try {
-        const geminiContents = [
-          { role: 'user', parts: [{ text: groundedSystemPrompt }] },
-          { role: 'model', parts: [{ text: 'Understood. I am WeatherGPT and will provide accurate meteorological reasoning strictly grounded in the provided data.' }] },
-          ...conversationHistory.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          }))
-        ];
+        const userPrompt = conversationHistory.length > 0 && conversationHistory[conversationHistory.length - 1]?.content
+          ? `${groundedSystemPrompt}\n\nUSER QUESTION: ${conversationHistory[conversationHistory.length - 1].content}`
+          : groundedSystemPrompt;
 
-        // Try gemini-2.0-flash first, then gemini-1.5-flash
-        const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+        const geminiContents = [{ role: 'user', parts: [{ text: userPrompt }] }];
+
+        // Try gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-flash-latest
+        const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
         let answer = null;
 
         for (const model of models) {
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: geminiContents })
-          });
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: geminiContents }),
+              signal: controller.signal
+            });
+            clearTimeout(timer);
 
-          if (res.ok) {
-            const json = await res.json();
-            answer = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (answer && answer.trim()) break;
+            if (res.ok) {
+              const json = await res.json();
+              answer = json.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (answer && answer.trim()) {
+                console.log(`[Gemini Success] Model: ${model}, Length: ${answer.length}`);
+                break;
+              }
+            } else {
+              const errBody = await res.text();
+              console.warn(`[Gemini ${model} Error ${res.status}]:`, errBody.slice(0, 200));
+            }
+          } catch (mErr) {
+            console.warn(`[Gemini ${model} Exception]:`, mErr.message);
           }
         }
 

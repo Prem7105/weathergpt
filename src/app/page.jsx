@@ -83,6 +83,20 @@ export default function WeatherGptHome() {
   // Search History
   const [searchInput, setSearchInput] = useState('');
   const [searchHistory, setSearchHistory] = useState(['New Delhi', 'Mumbai', 'Chennai', 'Kolkata', 'Bengaluru']);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('wgpt_search_history');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSearchHistory(parsed);
+          }
+        }
+      } catch (err) {}
+    }
+  }, []);
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [isLocationSearching, setIsLocationSearching] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState('');
@@ -218,6 +232,23 @@ export default function WeatherGptHome() {
     }
   }, [showToast]);
 
+  const handleResetDemo = useCallback(() => {
+    setActiveScenario('heavy_rain');
+    setSelectedPersona('citizen');
+    setSelectedLanguage('english');
+    setCurrentLoc({
+      city: 'Ahmedabad',
+      displayPrimary: 'Ahmedabad',
+      displaySecondary: 'Gujarat, India',
+      latitude: 23.0225,
+      longitude: 72.5714,
+    });
+    setMessages([]);
+    setTextInput('');
+    setAlertBannerDismissed(false);
+    showToast('🔄 Golden Demo Scenario reset: Ahmedabad Heavy Rain (Flood Risk).');
+  }, [showToast, setCurrentLoc]);
+
   // Send message callback
   const handleSendMessage = useCallback(async (textToSend, personaOverride) => {
     const query = (textToSend || textInput).trim();
@@ -297,7 +328,7 @@ export default function WeatherGptHome() {
     setMessages((prev) => [...prev, aiMsg]);
     setIsTyping(false);
     setIsSending(false);
-  }, [textInput, isSending, messages, weather, forecast, selectedPersona, selectedLanguage, isFallbackMode, currentLoc]);
+  }, [textInput, isSending, messages, weather, forecast, selectedPersona, selectedLanguage, isFallbackMode, currentLoc, riskData, activeScenario]);
 
   // STT Speech Recognition Hook
   const { micStatus, toggleMicrophone } = useSpeechRecognition(
@@ -400,13 +431,19 @@ export default function WeatherGptHome() {
     setActiveLocationIndex(-1);
     setSearchHistory((prev) => {
       const filtered = prev.filter((item) => item.toLowerCase() !== displayName.toLowerCase());
-      return [displayName, ...filtered].slice(0, 5);
+      const updated = [displayName, ...filtered].slice(0, 5);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('wgpt_search_history', JSON.stringify(updated));
+        } catch (err) {}
+      }
+      return updated;
     });
     fetchWeatherData(lat, lng, displayName);
     setMobileSidebarOpen(false);
-  }, [fetchWeatherData, searchInput, showToast]);
+  }, [fetchWeatherData, searchInput, showToast, setCurrentLoc]);
 
-  const handleExecuteSearch = async (targetCity) => {
+  const handleExecuteSearch = useCallback(async (targetCity) => {
     if (!targetCity || !targetCity.trim()) return;
     const clean = targetCity.trim();
     const geo = await geocodeAddress(clean);
@@ -443,14 +480,20 @@ export default function WeatherGptHome() {
       setActiveLocationIndex(-1);
       setSearchHistory((prev) => {
         const filtered = prev.filter((item) => item.toLowerCase() !== displayName.toLowerCase());
-        return [displayName, ...filtered].slice(0, 5);
+        const updated = [displayName, ...filtered].slice(0, 5);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('wgpt_search_history', JSON.stringify(updated));
+          } catch (err) {}
+        }
+        return updated;
       });
       fetchWeatherData(lat, lng, displayName);
       setMobileSidebarOpen(false);
     } else {
       showToast(`❌ Could not locate "${clean}". Please verify spelling.`);
     }
-  };
+  }, [fetchWeatherData, showToast, setCurrentLoc]);
 
   const handleLocationInputChange = useCallback((value) => {
     setSearchInput(value);
@@ -694,6 +737,7 @@ export default function WeatherGptHome() {
             onClearChat={handleClearConversation}
             onOpenAccount={() => setIsAccountOpen(true)}
             authenticatedUser={authenticatedUser}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
 
           {weather && (
@@ -726,6 +770,7 @@ export default function WeatherGptHome() {
               persona={selectedPersona}
               language={selectedLanguage}
               onSelectScenario={handleSelectScenario}
+              onResetDemo={handleResetDemo}
               activeScenario={activeScenario}
               onSimulateSms={handleSimulateSms}
               isOffline={isOffline}

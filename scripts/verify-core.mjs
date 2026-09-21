@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateWeatherRisk, buildImpactDecision } from '../src/lib/riskEngine.js';
+import { calculateWeatherRisk, calculateHazardAtHour, buildImpactDecision } from '../src/lib/riskEngine.js';
 import { assessRelevantIncidents, fuseRiskAndIncidents } from '../src/lib/incidentService.js';
 import { retrieveKnowledge, formatRAGContextForPrompt } from '../src/lib/ragService.js';
 import { validateGroundedMeasurements } from '../src/lib/groundingGuard.js';
@@ -95,7 +95,15 @@ assert.equal(hallucinatedCheck.grounded, false, 'Hallucinated 38°C should fail 
 assert.ok(hallucinatedCheck.ungrounded.includes('38.0:c'), 'Ungrounded list should contain 38.0:c');
 console.log('✔ Grounding Guard verification passed.');
 
-console.log('--- 6. Testing Last-Mile SMS Alert Formatting (Simulated Mode) ---');
+console.log('--- 6. Testing ML-Assisted Flood Rule Boundaries ---');
+const ruleOnlyFlood = calculateHazardAtHour({ current: { humidity: 80 }, hour: { precipitation: 4, precipitationProbability: 70, time: '2026-09-16T20:00:00Z' }, hazard: 'flood' });
+const modelAssistedFlood = calculateHazardAtHour({ current: { humidity: 80 }, hour: { precipitation: 4, precipitationProbability: 70, time: '2026-09-16T20:00:00Z' }, hazard: 'flood', mlPredictionMm: 10 });
+assert.ok(modelAssistedFlood.score > ruleOnlyFlood.score, 'Live ML precipitation input must affect only the flood rule score.');
+assert.match(modelAssistedFlood.method, /ML precipitation prediction plus deterministic risk rules/);
+assert.ok(modelAssistedFlood.factors.some((factor) => factor.label === 'ML next-hour precipitation'));
+console.log('✔ ML precipitation is connected to deterministic flood rules.');
+
+console.log('--- 7. Testing Last-Mile SMS Alert Formatting (Simulated Mode) ---');
 const smsResult = await sendRiskAlert({
   phoneNumber: '+919876543210',
   alert: {
@@ -107,12 +115,12 @@ const smsResult = await sendRiskAlert({
   forceSimulated: true
 });
 
-assert.equal(smsResult.success, true);
-assert.equal(smsResult.mode, 'simulated-demo');
+assert.equal(smsResult.success, false);
+assert.equal(smsResult.mode, 'SIMULATED');
 assert.match(smsResult.body, /\[WeatherGPT HIGH FLOOD ALERT\]/);
 assert.ok(smsResult.body.length <= 160, 'SMS body must fit single 160-char SMS segment');
-assert.ok(smsResult.edgeGsmCommand.startsWith('AT+CMGF=1'), 'Hardware GSM AT command must be generated');
-console.log('✔ Last-mile SMS formatting and simulated delivery passed.');
+assert.match(smsResult.note, /No SMS was sent/);
+console.log('✔ SMS formatting and honest simulated non-delivery verified.');
 
 console.log('\n=============================================');
 console.log(' ALL CORE PIPELINE TESTS PASSED SUCCESSFULLY! ');

@@ -15,6 +15,8 @@ function safeUser(user) {
     category: user.category,
     customCategory: user.customCategory,
     profileImage: user.profileImage || '',
+    savedLocations: user.savedLocations || [],
+    preferences: user.preferences || { language: 'english', persona: 'citizen', dailyAlerts: true, smsAlerts: false },
     hasPassword: Boolean(user.passwordHash),
   };
 }
@@ -25,7 +27,7 @@ export async function GET() {
     if (!userId) return NextResponse.json({ user: null }, { status: 401 });
 
     await connectDB();
-    const user = await User.findById(userId).select('nameEncrypted phoneEncrypted emailEncrypted category customCategory profileImage +passwordHash');
+    const user = await User.findById(userId).select('nameEncrypted phoneEncrypted emailEncrypted category customCategory profileImage savedLocations preferences +passwordHash');
     if (!user) return NextResponse.json({ user: null }, { status: 404 });
 
     return NextResponse.json({ user: safeUser(user) });
@@ -39,7 +41,7 @@ export async function PUT(request) {
     const userId = getSessionUserId();
     if (!userId) return NextResponse.json({ message: 'Please log in first.' }, { status: 401 });
 
-    const { name, email, emailOtp, profileImage, password } = await request.json();
+    const { name, email, emailOtp, profileImage, password, savedLocations, preferences } = await request.json();
     const normalizedImage = typeof profileImage === 'string' ? profileImage.trim() : '';
     const normalizedName = typeof name === 'string' ? name.trim() : '';
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -81,6 +83,8 @@ export async function PUT(request) {
       }
     }
     if (profileImage !== undefined) user.profileImage = normalizedImage;
+    if (savedLocations !== undefined && Array.isArray(savedLocations)) user.savedLocations = savedLocations;
+    if (preferences !== undefined && typeof preferences === 'object') user.preferences = { ...user.preferences, ...preferences };
     if (password !== undefined) {
       if (user.passwordHash) {
         return NextResponse.json({ message: 'A password is already set. Use Forgot password to replace it.' }, { status: 409 });
@@ -91,6 +95,6 @@ export async function PUT(request) {
 
     return NextResponse.json({ success: true, user: safeUser(user) });
   } catch {
-    return NextResponse.json({ message: 'Unable to update profile picture.' }, { status: 500 });
+    return NextResponse.json({ message: 'Unable to update profile.' }, { status: 500 });
   }
 }

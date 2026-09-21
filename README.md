@@ -41,7 +41,7 @@
 
 **WeatherGPT** is a hyper-local, conversational weather intelligence and disaster management platform built for **Smart India Hackathon 2026 (Problem Statement ID: 26068)** by **Team SIHnergy**.
 
-Traditional weather apps display raw numbers and meteorological charts (*"38 mm rain, 92% humidity"*). WeatherGPT closes the **cognitive translation gap** by transforming forecasts into **role-specific risk intelligence, physical impact assessments, and actionable operational directives** across **6 native Indian languages** with two-way voice interaction (STT & TTS), interactive geospatial risk maps, offline PWA resilience, and last-mile SMS/voice delivery.
+Traditional weather apps display raw numbers and meteorological charts (*"38 mm rain, 92% humidity"*). WeatherGPT closes the **cognitive translation gap** by transforming forecasts into **role-specific risk intelligence, physical impact assessments, and actionable operational directives** across **6 native Indian languages** with browser voice interaction (STT & TTS), interactive geospatial risk maps, offline PWA resilience, web push, and Twilio SMS when configured.
 
 > ### 🛡️ Safety Core Architecture:
 > $$\mathbf{ML\ PREDICTS\ \ \bullet\ \ RULES\ DECIDE\ \ \bullet\ \ LLM\ EXPLAINS}$$
@@ -83,7 +83,7 @@ flowchart TB
         UI_WEB["Next.js Responsive Web UI<br/>(PWA / React 18)"]
         UI_MOB["Android Capacitor Shell<br/>(com.devashish.weathergpt)"]
         VOICE_IN["Web Speech STT<br/>(6 Indian Languages)"]
-        SMS_GSM["Feature Phone Client<br/>(160-char SMS)"]
+        SMS["Twilio SMS<br/>(when configured)"]
     end
 
     subgraph API_GATEWAY ["Application & Routing Tier (Next.js 14 App Router)"]
@@ -117,13 +117,13 @@ flowchart TB
         MONGO_DB[("MongoDB Atlas<br/>Users • Incidents • Subscriptions")]
         SW_CACHE["Service Worker Cache<br/>(Static Assets & SWR Data)"]
         WEB_PUSH["Web Push Gateway (VAPID)"]
-        TWILIO_GW["Twilio SMS & Voice Gateway"]
+        TWILIO_GW["Twilio SMS Gateway"]
     end
 
     UI_WEB --> API_GATEWAY
     UI_MOB --> API_GATEWAY
     VOICE_IN --> CHAT_ROUTER
-    SMS_GSM <--> TWILIO_GW
+    SMS <--> TWILIO_GW
 
     API_GATEWAY --> CORE_ENGINE
     CORE_ENGINE --> LLM_TIER
@@ -294,7 +294,7 @@ OPENAI_API_KEY=your_openai_api_key
 GOOGLE_API_KEY=your_google_maps_key
 OPENWEATHERMAP_API_KEY=your_radar_tiles_key
 
-# Last-Mile Delivery (Twilio for SMS/Voice OTP & Web Push)
+# Last-Mile Delivery (Twilio SMS/Verify and Web Push)
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_auth_token
 TWILIO_VERIFY_SERVICE_SID=your_verify_sid
@@ -324,6 +324,14 @@ npm start
 ---
 
 ## 📖 In-Depth Technical Documentation
+
+### Operational documentation
+
+The repository documents its actual runtime boundaries and configuration states:
+
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md) · [Real vs demo](docs/REAL_VS_DEMO.md) · [Environment](docs/ENVIRONMENT.md)
+- [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Testing](docs/TESTING.md)
+- [Deployment](docs/DEPLOYMENT.md) · [Security](docs/SECURITY.md) · [Limitations](docs/LIMITATIONS.md)
 
 For the complete 33-section engineering document covering mathematical risk formulations, grounding guard traces, RAG architecture, SIH golden demonstration paths, and the 20-question jury defense guide, see:
 

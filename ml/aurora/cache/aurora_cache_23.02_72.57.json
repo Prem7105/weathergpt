@@ -1,0 +1,18 @@
+{
+  "enabled": false,
+  "status": "UNAVAILABLE",
+  "modelName": "Aurora 0.25° Small Pretrained — Research Mode",
+  "checkpoint": "microsoft/aurora (aurora-0.25-small-pretrained.ckpt)",
+  "targetLocation": {
+    "latitude": 23.02,
+    "longitude": 72.57
+  },
+  "ensembleMembers": 4,
+  "reason": "Aurora worker execution timed out.",
+  "prerequisites": {
+    "pressureLevelsCount": 13,
+    "surfaceVariablesCount": 6,
+    "hardware": "Host: RTX 4050 (6GB VRAM) / 16GB RAM — running Small Pretrained in Research Mode"
+  },
+  "timestamp": "2026-09-21T20:08:49.426Z"
+}

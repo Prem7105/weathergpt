@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import { cookies } from 'next/headers';
+import { cookies } from 'next/headers.js';
 
 export const SESSION_COOKIE = 'weathergpt_session';
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30;
@@ -61,6 +61,10 @@ export function clearSessionCookie(response) {
 }
 
 export function getSessionUserId() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
-  return readSessionToken(token)?.sub || null;
+  try {
+    const token = cookies().get(SESSION_COOKIE)?.value;
+    return readSessionToken(token)?.sub || null;
+  } catch {
+    return null;
+  }
 }

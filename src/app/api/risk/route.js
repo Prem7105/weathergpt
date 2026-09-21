@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { buildImpactDecision, buildRiskAlert, calculateHazardAtHour, calculateWeatherRisk, hazardDataDescriptor } from '@/lib/riskEngine';
 import { assessRelevantIncidents, fuseRiskAndIncidents, getDemoIncidents } from '@/lib/incidentService';
+import { predictNextHourPrecipitation } from '@/lib/mlPrecipitation';
 
 export const runtime = 'nodejs';
 
@@ -23,9 +24,80 @@ function toResponseShape(doc) {
   };
 }
 
+async function buildRealSpatialGrid({ centerLat, centerLon, selectedHazard, selectedTime, mlPredictionMm = null }) {
+  const offsets = [-0.24, -0.12, 0, 0.12, 0.24];
+  const pointsCoords = [];
+  const lats = [];
+  const lons = [];
+
+  for (const dLat of offsets) {
+    for (const dLon of offsets) {
+      const lat = Number((centerLat + dLat).toFixed(4));
+      const lon = Number((centerLon + dLon).toFixed(4));
+      const isCenter = Math.abs(dLat) < 0.001 && Math.abs(dLon) < 0.001;
+      pointsCoords.push({ lat, lon, isCenter });
+      lats.push(lat);
+      lons.push(lon);
+    }
+  }
+
+  const params = new URLSearchParams({
+    latitude: lats.join(','),
+    longitude: lons.join(','),
+    current: 'temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m',
+    hourly: 'precipitation,precipitation_probability,temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m',
+    forecast_days: '2',
+    past_days: '1',
+    timezone: 'auto',
+  });
+
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { next: { revalidate: 600 } });
+  if (!response.ok) throw new Error(`Open-Meteo spatial batch returned ${response.status}`);
+  const data = await response.json();
+  const rawPoints = Array.isArray(data) ? data : [data];
+
+  const gridPoints = pointsCoords.map((coord, idx) => {
+    const d = rawPoints[idx] || rawPoints[0];
+    const riskHourly = toHourly(d);
+    const current = toCurrent(d);
+    const selectedHour = riskHourly.find((hour) => hour.time === selectedTime) || riskHourly[0];
+
+    const atTime = calculateHazardAtHour({
+      current,
+      hour: selectedHour,
+      hazard: selectedHazard,
+      mlPredictionMm: coord.isCenter ? mlPredictionMm : null,
+    });
+
+    const raw = atTime.raw;
+    const descriptor = hazardDataDescriptor(selectedHazard, raw);
+
+    let level = 'low';
+    if (atTime.riskValue >= 0.75) level = 'severe';
+    else if (atTime.riskValue >= 0.50) level = 'high';
+    else if (atTime.riskValue >= 0.25) level = 'moderate';
+
+    return {
+      lat: coord.lat,
+      lon: coord.lon,
+      value: Number(atTime.riskValue.toFixed(3)),
+      riskValue: Number(atTime.riskValue.toFixed(3)),
+      level,
+      rawValue: descriptor.rawValue,
+      variable: descriptor.variable,
+      hazard: selectedHazard,
+      timestamp: selectedHour?.time,
+      isCenter: coord.isCenter,
+    };
+  });
+
+  return gridPoints;
+}
+
 async function loadGroundReality({ latitude, longitude, risk, persona, radiusKm = 15, isDemo = false }) {
   const now = new Date();
   let incidents = [];
+  let dataStatus = 'LIVE';
 
   if (!isDemo) {
     try {
@@ -35,20 +107,23 @@ async function loadGroundReality({ latitude, longitude, risk, persona, radiusKm 
       const docs = await Incident.find({ expiresAt: { $gt: now } }).sort({ publishedAt: -1 }).limit(100).lean();
       incidents = docs.map((doc) => toResponseShape(doc));
     } catch (error) {
-      console.warn('Ground-reality MongoDB unavailable; using verified reference incidents:', error.message);
+      dataStatus = 'DEGRADED';
+      console.warn('Ground-reality MongoDB unavailable; returning no live incidents:', error.message);
     }
   }
 
-  // If no DB incidents exist or in demo mode, provide calibrated seed reference incidents
-  if (!incidents.length) {
+  // Seed data belongs exclusively to explicit demo scenarios. A live weather
+  // response must never silently attach synthetic incidents.
+  if (isDemo) {
     incidents = getDemoIncidents({ latitude, longitude }, now);
+    dataStatus = 'DEMO-SCENARIO';
   }
 
   const relevant = assessRelevantIncidents({ incidents, location: { latitude, longitude }, now, radiusKm });
-  return fuseRiskAndIncidents({ risk, incidents: relevant, persona });
+  return { ...fuseRiskAndIncidents({ risk, incidents: relevant, persona }), dataStatus };
 }
 
-function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, persona }) {
+async function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, persona }) {
   const now = new Date();
   const baseTime = now.toISOString();
 
@@ -82,6 +157,16 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
     const impactDecision = buildImpactDecision({ hazard: 'heat', score: selectedAtTime.score, level: selectedAtTime.level, peakRisk, persona });
     const alert = buildRiskAlert({ area: `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`, hazard: 'heat', score: selectedAtTime.score, level: selectedAtTime.level, factors: selectedAtTime.factors, peakRisk, impactDecision, persona, assessedAt: baseTime, source: 'Demo Scenario (Severe Heatwave)' });
     const groundReality = fuseRiskAndIncidents({ risk: selectedAtTime, incidents: getDemoIncidents({ latitude, longitude }, now), persona });
+    const demoGridPoints = await buildSpatialGrid({
+      centerLat: latitude,
+      centerLon: longitude,
+      baseValue: selectedAtTime.riskValue,
+      level: selectedAtTime.level,
+      hazard: 'heat',
+      rawValue: 43.5,
+      variable: 'temperature',
+      timestamp: baseTime
+    });
     return {
       latitude, longitude, hazard: 'heat', timestamp: baseTime,
       weather: selectedAtTime.raw,
@@ -89,10 +174,10 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
       incidents: groundReality,
       alert,
       source: 'Demo Scenario (Severe Heatwave)',
-      dataStatus: 'demo',
+      dataStatus: 'DEMO-SCENARIO',
       assessedAt: baseTime,
       ml: { enabled: false, reason: 'ML precipitation model is not applicable for heatwave evaluation.' },
-      heatmap: { spatialStatus: 'localized', source: 'Demo Scenario', timestamp: baseTime, points: [{ lat: latitude, lon: longitude, value: selectedAtTime.riskValue, riskValue: selectedAtTime.riskValue, level: selectedAtTime.level, hazard: 'heat' }] },
+      heatmap: { spatialStatus: 'regional_grid', source: 'Demo Scenario', timestamp: baseTime, points: demoGridPoints },
     };
   }
 
@@ -125,6 +210,16 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
     const impactDecision = buildImpactDecision({ hazard: 'wind', score: selectedAtTime.score, level: selectedAtTime.level, peakRisk, persona });
     const alert = buildRiskAlert({ area: `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`, hazard: 'wind', score: selectedAtTime.score, level: selectedAtTime.level, factors: selectedAtTime.factors, peakRisk, impactDecision, persona, assessedAt: baseTime, source: 'Demo Scenario (Gale Wind & Storm)' });
     const groundReality = fuseRiskAndIncidents({ risk: selectedAtTime, incidents: getDemoIncidents({ latitude, longitude }, now), persona });
+    const demoGridPoints = await buildSpatialGrid({
+      centerLat: latitude,
+      centerLon: longitude,
+      baseValue: selectedAtTime.riskValue,
+      level: selectedAtTime.level,
+      hazard: 'wind',
+      rawValue: 58,
+      variable: 'wind_speed',
+      timestamp: baseTime
+    });
     return {
       latitude, longitude, hazard: 'wind', timestamp: baseTime,
       weather: selectedAtTime.raw,
@@ -132,10 +227,10 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
       incidents: groundReality,
       alert,
       source: 'Demo Scenario (Gale Wind & Storm)',
-      dataStatus: 'demo',
+      dataStatus: 'DEMO-SCENARIO',
       assessedAt: baseTime,
       ml: { enabled: true, predictedPrecipitationMm: 14.5, source: 'Demo Scenario ML' },
-      heatmap: { spatialStatus: 'localized', source: 'Demo Scenario', timestamp: baseTime, points: [{ lat: latitude, lon: longitude, value: selectedAtTime.riskValue, riskValue: selectedAtTime.riskValue, level: selectedAtTime.level, hazard: 'wind' }] },
+      heatmap: { spatialStatus: 'regional_grid', source: 'Demo Scenario', timestamp: baseTime, points: demoGridPoints },
     };
   }
 
@@ -169,6 +264,16 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
   const impactDecision = buildImpactDecision({ hazard: 'flood', score: selectedAtTime.score, level: selectedAtTime.level, peakRisk, persona });
   const alert = buildRiskAlert({ area: `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`, hazard: 'flood', score: selectedAtTime.score, level: selectedAtTime.level, factors: selectedAtTime.factors, peakRisk, impactDecision, persona, assessedAt: baseTime, source: 'Demo Scenario (Heavy Monsoon Rain)' });
   const groundReality = fuseRiskAndIncidents({ risk: selectedAtTime, incidents: getDemoIncidents({ latitude, longitude }, now), persona });
+  const demoGridPoints = await buildSpatialGrid({
+    centerLat: latitude,
+    centerLon: longitude,
+    baseValue: selectedAtTime.riskValue,
+    level: selectedAtTime.level,
+    hazard: 'flood',
+    rawValue: 18.5,
+    variable: 'precipitation',
+    timestamp: baseTime
+  });
   return {
     latitude, longitude, hazard: 'flood', timestamp: baseTime,
     weather: selectedAtTime.raw,
@@ -176,10 +281,10 @@ function buildDemoScenario({ scenario = 'heavy_rain', latitude, longitude, perso
     incidents: groundReality,
     alert,
     source: 'Demo Scenario (Heavy Monsoon Rain)',
-    dataStatus: 'demo',
+    dataStatus: 'DEMO-SCENARIO',
     assessedAt: baseTime,
     ml: { enabled: true, predictedPrecipitationMm: 18.5, model: 'short_term_precipitation', algorithm: 'HistGradientBoostingRegressor', horizonHours: 1, source: 'Synthetic Demo ML' },
-    heatmap: { spatialStatus: 'localized', source: 'Demo Scenario', timestamp: baseTime, points: [{ lat: latitude, lon: longitude, value: selectedAtTime.riskValue, riskValue: selectedAtTime.riskValue, level: selectedAtTime.level, hazard: 'flood' }] },
+    heatmap: { spatialStatus: 'regional_grid', source: 'Demo Scenario', timestamp: baseTime, points: demoGridPoints },
   };
 }
 
@@ -251,7 +356,7 @@ export async function GET(request) {
 
   // Handle Demo Mode Scenarios
   if (isDemoMode) {
-    const demoPayload = buildDemoScenario({ scenario: scenario || 'heavy_rain', latitude, longitude, persona });
+    const demoPayload = await buildDemoScenario({ scenario: scenario || 'heavy_rain', latitude, longitude, persona });
     return NextResponse.json(demoPayload);
   }
 
@@ -262,21 +367,49 @@ export async function GET(request) {
     const timeline = point.risk.timelineByHazard?.[selected.type] || point.risk.timeline;
     const peakRisk = timeline.reduce((best, item) => !best || item.score > best.score ? item : best, null);
     const selectedHour = point.riskHourly.find((hour) => hour.time === selectedTime) || point.riskHourly[0];
-    const selectedAtTime = calculateHazardAtHour({ current: point.current, hour: selectedHour, hazard: selected.type });
+    // ML is intentionally an input only for the flood rule. It never selects a
+    // hazard, severity, impact, or emergency action by itself.
+    const ml = selected.type === 'flood'
+      ? await predictNextHourPrecipitation({ current: point.current, hourly: point.hourlyAll, timestamp: selectedHour?.time })
+      : { enabled: false, status: 'NOT-APPLICABLE', reason: 'Precipitation inference applies only to flood assessment.' };
+    const selectedAtTime = calculateHazardAtHour({
+      current: point.current,
+      hour: selectedHour,
+      hazard: selected.type,
+      mlPredictionMm: ml.enabled ? ml.predictedPrecipitationMm : null,
+    });
     const raw = selectedAtTime.raw;
     const descriptor = hazardDataDescriptor(selected.type, raw);
     const stormSpatialUnavailable = selected.type === 'storm';
-    const heatmapPoint = { lat: latitude, lon: longitude, value: selectedAtTime.riskValue, riskValue: selectedAtTime.riskValue, level: selectedAtTime.level, rawValue: descriptor.rawValue, variable: descriptor.variable, raw, hazard: selected.type, timestamp: selectedHour?.time };
+    const spatialGridPoints = stormSpatialUnavailable ? [] : await buildRealSpatialGrid({
+      centerLat: latitude,
+      centerLon: longitude,
+      selectedHazard: selected.type,
+      selectedTime: selectedHour?.time,
+      mlPredictionMm: ml.enabled ? ml.predictedPrecipitationMm : null,
+    });
     const assessedAt = new Date().toISOString();
-    const ml = { enabled: false, reason: 'ML precipitation forecast is served by the dedicated inference endpoint.' };
     const impactDecision = buildImpactDecision({ hazard: selected.type, score: selectedAtTime.score, level: selectedAtTime.level, peakRisk, persona });
     const alert = buildRiskAlert({ area: `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`, hazard: selected.type, score: selectedAtTime.score, level: selectedAtTime.level, factors: selectedAtTime.factors, peakRisk, impactDecision, persona, assessedAt });
     const groundReality = await loadGroundReality({ latitude, longitude, risk: selectedAtTime, persona });
-    return NextResponse.json({ latitude, longitude, hazard: selected.type, timestamp: selectedHour?.time, weather: raw, weatherProvider: selectedHour, heatmap: { spatialStatus: stormSpatialUnavailable ? 'unavailable' : 'localized', spatialMessage: stormSpatialUnavailable ? 'Spatial storm data unavailable.' : null, source: 'open-meteo', timestamp: selectedHour?.time, variable: descriptor.variable, rawValue: descriptor.rawValue, riskValue: selectedAtTime.riskValue, points: stormSpatialUnavailable ? [] : [heatmapPoint] }, risk: { ...point.risk, ...selectedAtTime, timeline, peakRisk, impactDecision }, incidents: groundReality, ml, alert, source: 'Open-Meteo', dataStatus: 'live', assessedAt });
+    const risk = {
+      ...point.risk,
+      ...selectedAtTime,
+      timeline,
+      peakRisk,
+      impactDecision,
+      confidence: ml.enabled ? 'weather-and-model-input' : 'weather-signal',
+      valid_from: selectedHour?.time || assessedAt,
+      valid_until: peakRisk?.time || selectedHour?.time || assessedAt,
+      model: ml.enabled ? { name: ml.model, version: ml.modelVersion, algorithm: ml.algorithm, input: 'live Open-Meteo weather features' } : null,
+      source: 'Open-Meteo',
+      status: 'LIVE',
+    };
+    return NextResponse.json({ latitude, longitude, hazard: selected.type, timestamp: selectedHour?.time, weather: raw, weatherProvider: selectedHour, heatmap: { spatialStatus: stormSpatialUnavailable ? 'unavailable' : 'regional_grid', spatialMessage: stormSpatialUnavailable ? 'Spatial storm data unavailable.' : null, source: 'open-meteo', timestamp: selectedHour?.time, variable: descriptor.variable, rawValue: descriptor.rawValue, riskValue: selectedAtTime.riskValue, points: stormSpatialUnavailable ? [] : spatialGridPoints }, risk, incidents: groundReality, ml, alert, source: 'Open-Meteo', dataStatus: 'LIVE', assessedAt });
   } catch (error) {
     console.error('Live risk assessment failed, falling back to cached reference evaluation:', error);
     // Graceful fallback to verified calculation so users never face blank screens
     const fallbackPayload = buildDemoScenario({ scenario: 'heavy_rain', latitude, longitude, persona });
-    return NextResponse.json({ ...fallbackPayload, dataStatus: 'offline-cached', source: 'WeatherGPT Offline Intelligence Engine' });
+    return NextResponse.json({ ...fallbackPayload, dataStatus: 'OFFLINE-CACHED', source: 'WeatherGPT Offline Intelligence Engine' });
   }
 }

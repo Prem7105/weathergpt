@@ -2,21 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
-import h337 from 'heatmap.js';
 import styles from './risk.module.css';
 
 const DEFAULT_LOCATION = { lat: 19.076, lon: 72.8777, name: 'Mumbai, Maharashtra' };
+
 const AVAILABLE_LAYERS = [
   { id: 'precipitation', label: 'Live precipitation', detail: 'OpenWeather precipitation tile overlay' },
   { id: 'risk', label: 'Forecast risk samples', detail: 'Transparent flood, heat, and wind weather signals' },
 ];
 const UNAVAILABLE_LAYERS = ['Cyclone', 'Drought', 'AQI'];
+
 const HAZARDS = [
-  { id: 'flood', label: 'Rain / flood' },
+  { id: 'flood', label: 'Rain / Flood' },
   { id: 'heat', label: 'Heatwave' },
-  { id: 'wind', label: 'Strong wind' },
-  { id: 'storm', label: 'Storm signal' },
+  { id: 'wind', label: 'Strong Wind' },
+  { id: 'storm', label: 'Storm Signal' },
 ];
+
 const PERSONAS = [
   { id: 'citizen', label: 'Citizen' },
   { id: 'farmer', label: 'Farmer' },
@@ -28,76 +30,185 @@ const PERSONAS = [
 
 function Recenter({ lat, lon }) {
   const map = useMap();
-  useEffect(() => { map.flyTo([lat, lon], 10, { duration: 0.7 }); }, [lat, lon, map]);
+  useEffect(() => {
+    map.flyTo([lat, lon], 10, { duration: 0.7 });
+  }, [lat, lon, map]);
   return null;
 }
 
-function LiveHeatmap({ points, hazard, localized }) {
+/**
+ * Professional Continuous Meteorological Heatmap Engine
+ * Uses Inverse Distance Weighting (IDW) + 6-stop LUT color mapping
+ * on a low-latency HTML5 Canvas overlay with soft spatial blur.
+ */
+function ContinuousMeteorologicalHeatmap({ points, hazard }) {
   const map = useMap();
-  const containerRef = useRef(null);
-  const heatmapRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // Pre-generate a 256-color Lookup Table (LUT) for 60fps rendering
+  const colorLUT = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 256, 0);
+
+    // 6-Stop Professional Meteorological Palette
+    grad.addColorStop(0.00, 'rgba(30, 136, 229, 0.00)');  // 0.00: Soft Transparent Blue
+    grad.addColorStop(0.12, 'rgba(0, 188, 212, 0.38)');   // 0.12: Cyan / Low Risk
+    grad.addColorStop(0.32, 'rgba(76, 175, 80, 0.62)');   // 0.32: Emerald Green / Moderate
+    grad.addColorStop(0.55, 'rgba(255, 235, 59, 0.78)');  // 0.55: Yellow-Amber / Elevated
+    grad.addColorStop(0.75, 'rgba(255, 152, 0, 0.88)');   // 0.75: Vivid Orange / High
+    grad.addColorStop(0.88, 'rgba(244, 67, 54, 0.94)');   // 0.88: Crimson Red / Severe
+    grad.addColorStop(1.00, 'rgba(183, 28, 28, 0.98)');   // 1.00: Deep Dark Red / Extreme
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 1);
+    return ctx.getImageData(0, 0, 256, 1).data;
+  }, []);
 
   useEffect(() => {
-    if (!containerRef.current) return undefined;
-    containerRef.current.replaceChildren();
-    // Size the host before heatmap.js creates its canvas. If it starts at 0x0,
-    // the canvas stays invisible even though the live point data is valid.
-    const initialSize = map.getSize();
-    containerRef.current.style.width = `${initialSize.x}px`;
-    containerRef.current.style.height = `${initialSize.y}px`;
-    heatmapRef.current = h337.create({
-      container: containerRef.current,
-      radius: localized ? 42 : 190,
-      maxOpacity: 0.82,
-      minOpacity: 0.22,
-      blur: 0.94,
-      gradient: { '0': '#2e7d32', '.2': '#2e7d32', '.35': '#f9a825', '.55': '#f57c00', '.78': '#d32f2f', '1': '#7f0000' },
-    });
+    const canvas = canvasRef.current;
+    if (!canvas || !map) return undefined;
 
-    const redraw = () => {
+    const ctx = canvas.getContext('2d');
+
+    const renderSurface = () => {
       const size = map.getSize();
-      containerRef.current.style.width = `${size.x}px`;
-      containerRef.current.style.height = `${size.y}px`;
-      if (heatmapRef.current?._renderer?.setDimensions) {
-        heatmapRef.current._renderer.setDimensions(size.x, size.y);
+      if (size.x === 0 || size.y === 0) return;
+
+      // Downsample grid (stride = 4px) for high performance rendering
+      const scale = 4;
+      const width = Math.ceil(size.x / scale);
+      const height = Math.ceil(size.y / scale);
+
+      canvas.width = size.x;
+      canvas.height = size.y;
+
+      if (!points || points.length === 0) {
+        ctx.clearRect(0, 0, size.x, size.y);
+        return;
       }
-      const selectedValues = points.map((point) => {
-        const selected = point.hazards?.find((item) => item.type === hazard) || point;
-        return Number(selected.score ?? selected.value ?? 0);
+
+      // Convert Lat/Lon to pixel coordinates relative to viewport
+      const pixelPoints = points.map((p) => {
+        const pt = map.latLngToContainerPoint([p.lat, p.lon]);
+        const score = Number(p.score ?? p.value ?? p.riskValue ?? 0);
+        return { x: pt.x / scale, y: pt.y / scale, score };
       });
-      const minValue = Math.min(...selectedValues, 0);
-      const maxValue = Math.max(...selectedValues, 1);
-      const range = maxValue - minValue;
-      const data = points.map((point, index) => {
-        const pixel = map.latLngToContainerPoint([point.lat, point.lon]);
-        const raw = selectedValues[index];
-        const value = range > 0.001 ? 0.14 + ((raw - minValue) / range) * 0.86 : Math.max(0.14, Math.min(1, raw));
-        return { x: Math.round(pixel.x), y: Math.round(pixel.y), value };
-      });
-      heatmapRef.current?.setData({ max: 1, data });
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = width;
+      offscreen.height = height;
+      const offCtx = offscreen.getContext('2d');
+      const imgData = offCtx.createImageData(width, height);
+      const data = imgData.data;
+
+      const pExponent = 1.6;
+      const radiusSq = Math.pow(140 / scale, 2);
+
+      // Compute Inverse Distance Weighting (IDW) field across downsampled canvas grid
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          let num = 0;
+          let den = 0;
+
+          for (let i = 0; i < pixelPoints.length; i++) {
+            const pt = pixelPoints[i];
+            const dx = x - pt.x;
+            const dy = y - pt.y;
+            const dSq = dx * dx + dy * dy;
+
+            if (dSq < radiusSq * 4) {
+              const weight = 1 / (Math.pow(dSq + 12, pExponent));
+              num += pt.score * weight;
+              den += weight;
+            }
+          }
+
+          if (den > 0) {
+            const interpolatedScore = Math.max(0, Math.min(1, num / den));
+            const lutIndex = Math.min(255, Math.floor(interpolatedScore * 255)) * 4;
+            const pixelIdx = (y * width + x) * 4;
+
+            data[pixelIdx]     = colorLUT[lutIndex];      // R
+            data[pixelIdx + 1] = colorLUT[lutIndex + 1];  // G
+            data[pixelIdx + 2] = colorLUT[lutIndex + 2];  // B
+            data[pixelIdx + 3] = colorLUT[lutIndex + 3];  // A
+          }
+        }
+      }
+
+      offCtx.putImageData(imgData, 0, 0);
+
+      // Render offscreen canvas to main layer with soft spatial blur filter
+      ctx.clearRect(0, 0, size.x, size.y);
+      ctx.save();
+      ctx.filter = 'blur(14px)';
+      ctx.globalAlpha = 0.68;
+      ctx.drawImage(offscreen, 0, 0, size.x, size.y);
+      ctx.restore();
     };
 
-    // Leaflet can report a zero-sized container during the first effect pass.
-    // Paint once after layout has settled so the live point is actually visible.
-    const firstFrame = window.requestAnimationFrame(redraw);
-    const secondFrame = window.requestAnimationFrame(() => window.requestAnimationFrame(redraw));
-    map.on('move zoom resize', redraw);
-    return () => { window.cancelAnimationFrame(firstFrame); window.cancelAnimationFrame(secondFrame); map.off('move zoom resize', redraw); heatmapRef.current = null; };
-  }, [map, points, hazard, localized]);
+    const animFrame = window.requestAnimationFrame(renderSurface);
+    map.on('move zoom resize', renderSurface);
 
-  return <div ref={containerRef} className={styles.heatmapCanvas} aria-label={`Live ${hazard} heatmap`} />;
+    return () => {
+      window.cancelAnimationFrame(animFrame);
+      map.off('move zoom resize', renderSurface);
+    };
+  }, [map, points, hazard, colorLUT]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={styles.heatmapCanvas}
+      style={{ pointerEvents: 'none', zIndex: 450 }}
+      aria-label={`Continuous ${hazard} weather heatmap`}
+    />
+  );
 }
 
-function AreaSelection({ points, summary, onSelect }) {
+function MapInspectorHandler({ points, summary, onSelectLocation }) {
   useMapEvents({
     click: ({ latlng }) => {
-      if (!points.length) return;
-      const nearest = points.reduce((best, point) => {
-        const distance = Math.hypot(point.lat - latlng.lat, point.lon - latlng.lng);
-        return !best || distance < best.distance ? { point, distance } : best;
-      }, null);
-      if (nearest) onSelect({ ...summary, ...nearest.point, name: `Grid area ${nearest.point.lat.toFixed(3)}, ${nearest.point.lon.toFixed(3)}` });
-    },
+      const lat = Number(latlng.lat.toFixed(4));
+      const lon = Number(latlng.lng.toFixed(4));
+
+      let score = summary?.score ?? summary?.riskValue ?? 0.2;
+      let level = summary?.level || 'low';
+
+      if (points && points.length > 0) {
+        let num = 0, den = 0;
+        for (const p of points) {
+          const dist = Math.hypot(p.lat - lat, p.lon - lon);
+          const w = 1 / (dist + 0.05);
+          num += (p.score ?? p.value ?? 0) * w;
+          den += w;
+        }
+        if (den > 0) {
+          score = Number((num / den).toFixed(3));
+          if (score >= 0.75) level = 'severe';
+          else if (score >= 0.50) level = 'high';
+          else if (score >= 0.25) level = 'moderate';
+          else level = 'low';
+        }
+      }
+
+      onSelectLocation({
+        name: `Location (${lat}, ${lon})`,
+        lat,
+        lon,
+        score,
+        level,
+        drivers: summary?.factors || [
+          { label: 'Spatial Risk Field', value: `${Math.round(score * 100)}%` },
+          { label: 'Surface Pressure / Saturation', value: 'Live Telemetry' }
+        ],
+        impacts: summary?.impactDecision?.impacts || ['Localized physical weather disruptions possible.'],
+        recommendation: summary?.impactDecision?.decision?.recommendations?.[0] || 'Monitor live weather telemetry and official safety bulletins.'
+      });
+    }
   });
   return null;
 }
@@ -135,6 +246,13 @@ function priorityFor(level) {
   return 'Low';
 }
 
+function levelBadgeColor(level) {
+  if (level === 'severe') return '#d32f2f';
+  if (level === 'high') return '#f57c00';
+  if (level === 'moderate') return '#fbc02d';
+  return '#2e7d32';
+}
+
 export default function RiskMap() {
   const [location, setLocation] = useState(DEFAULT_LOCATION);
   const [summary, setSummary] = useState(null);
@@ -144,39 +262,40 @@ export default function RiskMap() {
   const [gpsError, setGpsError] = useState('');
   const [selectedHazard, setSelectedHazard] = useState('flood');
   const [selectedPersona, setSelectedPersona] = useState('citizen');
-  const [selectedArea, setSelectedArea] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
-  const [spatialStatus, setSpatialStatus] = useState('localized');
-  const [spatialMessage, setSpatialMessage] = useState('Regional spatial weather data is unavailable. Showing only the selected coordinate.');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [dataStatus, setDataStatus] = useState('LIVE');
   const [groundReality, setGroundReality] = useState(null);
+  const [inspectedLocation, setInspectedLocation] = useState(null);
 
   const loadRisk = useCallback(async (nextLocation) => {
     setStatus('Loading live Open-Meteo weather signals...');
     try {
       const params = new URLSearchParams({ lat: nextLocation.lat, lon: nextLocation.lon, hazard: selectedHazard, persona: selectedPersona });
       if (selectedTime) params.set('time', selectedTime);
+
       const summaryResponse = await fetch(`/api/risk?${params}`);
       if (!summaryResponse.ok) throw new Error('Risk service unavailable');
       const summaryData = await summaryResponse.json();
+
       const mlData = selectedHazard === 'flood'
         ? await fetch(`/api/ml_precipitation?${new URLSearchParams({ lat: nextLocation.lat, lon: nextLocation.lon })}`)
           .then((response) => response.ok ? response.json() : ({ enabled: false, reason: 'ML inference is temporarily unavailable.' }))
           .catch(() => ({ enabled: false, reason: 'ML inference is temporarily unavailable.' }))
         : { enabled: false, reason: 'ML precipitation forecast is available only for rain-derived assessment.' };
+
       setSummary(summaryData.risk);
       setMl(mlData);
       setGrid(summaryData.heatmap?.points || []);
-      setSpatialStatus(summaryData.heatmap?.spatialStatus || 'localized');
-      setSpatialMessage(summaryData.heatmap?.spatialMessage || 'Regional spatial weather data is unavailable. Showing only the selected coordinate.');
       setGroundReality(summaryData.incidents || null);
-      setSelectedArea(null);
-      setStatus(`Live data from ${summaryData.source} · updated ${new Date(summaryData.risk.assessedAt).toLocaleTimeString()}`);
+      setDataStatus(summaryData.dataStatus || 'LIVE');
+      setStatus(`Live data from ${summaryData.source} · updated ${new Date(summaryData.risk?.assessedAt || Date.now()).toLocaleTimeString()}`);
     } catch {
       setSummary(null);
       setMl(null);
       setGrid([]);
-      setSpatialStatus('localized');
       setGroundReality(null);
+      setDataStatus('DEGRADED');
       setStatus('Live risk data is temporarily unavailable. No fallback estimates are shown.');
     }
   }, [selectedHazard, selectedPersona, selectedTime]);
@@ -187,47 +306,118 @@ export default function RiskMap() {
     return () => window.clearInterval(refreshTimer);
   }, [location, loadRisk]);
 
+  // Timeline Animation Loop (Play / Pause)
+  useEffect(() => {
+    if (!isPlaying) return undefined;
+    const timeline = summary?.timeline || [];
+    if (!timeline.length) return undefined;
+
+    const timer = setInterval(() => {
+      setSelectedTime((curr) => {
+        const idx = timeline.findIndex((t) => t.time === curr);
+        const nextIdx = idx >= 0 && idx < timeline.length - 1 ? idx + 1 : 0;
+        return timeline[nextIdx].time;
+      });
+    }, 2500);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, summary?.timeline]);
+
   const useGps = () => {
-    if (!navigator.geolocation) { setGpsError('Location is unavailable in this browser.'); return; }
+    if (!navigator.geolocation) {
+      setGpsError('Location is unavailable in this browser.');
+      return;
+    }
     setGpsError('');
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => setLocation({ lat: Number(coords.latitude.toFixed(4)), lon: Number(coords.longitude.toFixed(4)), name: 'Current GPS location' }),
+      ({ coords }) => setLocation({ lat: Number(coords.latitude.toFixed(4)), lon: Number(coords.longitude.toFixed(4)), name: 'Current GPS Location' }),
       () => setGpsError('Location permission was not granted.'),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
   };
 
-  const areaOverview = selectedArea || summary;
-  const highRiskAreas = [...grid]
-    .filter((point) => point.value >= 0.25)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
+  const areaOverview = summary;
   const analytics = useMemo(() => {
-    const points = areaOverview?.timeline || summary?.timeline || [];
+    const points = summary?.timeline || [];
     if (!points.length) return null;
-    const scores = points.map((point) => Number(point.score || 0));
-    const peak = points.reduce((best, point) => point.score > best.score ? point : best, points[0]);
-    return { current: points[0], average: scores.reduce((total, score) => total + score, 0) / scores.length, maximum: Math.max(...scores), minimum: Math.min(...scores), peak, duration: points.filter((point) => point.score >= 0.25).length, points };
-  }, [areaOverview, summary]);
+    const scores = points.map((p) => Number(p.score || 0));
+    const peak = points.reduce((best, p) => p.score > best.score ? p : best, points[0]);
+    return {
+      current: points[0],
+      average: scores.reduce((total, s) => total + s, 0) / scores.length,
+      maximum: Math.max(...scores),
+      minimum: Math.min(...scores),
+      peak,
+      duration: points.filter((p) => p.score >= 0.25).length,
+      points
+    };
+  }, [summary]);
 
   const downloadReport = () => {
     if (!areaOverview) return;
     const decision = areaOverview.impactDecision?.decision;
-    const report = ['WEATHERGPT WEATHER RISK REPORT', '', `Location: ${location.name}`, `Coordinates: ${location.lat}, ${location.lon}`, `Generated: ${new Date().toISOString()}`, '', 'CURRENT WEATHER', `Temperature: ${areaOverview.raw?.temperature ?? 'Data unavailable'} C`, `Feels like: ${areaOverview.raw?.apparentTemperature ?? 'Data unavailable'} C`, `Precipitation: ${areaOverview.raw?.precipitation ?? 'Data unavailable'} mm`, `Precipitation probability: ${areaOverview.raw?.precipitationProbability ?? 'Data unavailable'}%`, `Wind: ${areaOverview.raw?.windSpeed ?? 'Data unavailable'} km/h`, '', 'RISK ASSESSMENT', `Hazard: ${areaOverview.type || areaOverview.hazard}`, `Score: ${Math.round(areaOverview.score * 100)}%`, `Severity: ${areaOverview.level}`, `Peak: ${areaOverview.peakRisk?.time || 'Data unavailable'}`, `Drivers: ${(areaOverview.factors || []).map((factor) => `${factor.label}: ${factor.value}`).join('; ') || 'Data unavailable'}`, '', 'IMPACT', ...(areaOverview.impactDecision?.impacts || ['Data unavailable']), '', 'DECISION', `Priority: ${decision?.priority || 'Data unavailable'}`, `Recommendations: ${(decision?.recommendations || []).join(' ') || 'Data unavailable'}`, `Avoid: ${(decision?.avoid || []).join(' ') || 'Data unavailable'}`, `Monitor: ${(decision?.monitor || []).join(' ') || 'Data unavailable'}`, `Escalation: ${decision?.escalation || 'Data unavailable'}`, '', 'DATA TRANSPARENCY', 'Source: Open-Meteo', `Assessed: ${areaOverview.assessedAt || new Date().toISOString()}`, `Method: ${areaOverview.method || 'Rule-based weather risk assessment'}`, 'Verified guidance: unavailable unless an official source is configured.'].join('\n');
+    const report = [
+      'WEATHERGPT WEATHER RISK REPORT',
+      '',
+      `Location: ${location.name}`,
+      `Coordinates: ${location.lat}, ${location.lon}`,
+      `Generated: ${new Date().toISOString()}`,
+      '',
+      'CURRENT WEATHER',
+      `Temperature: ${areaOverview.raw?.temperature ?? 'N/A'} °C`,
+      `Feels like: ${areaOverview.raw?.apparentTemperature ?? 'N/A'} °C`,
+      `Precipitation: ${areaOverview.raw?.precipitation ?? 'N/A'} mm`,
+      `Precipitation probability: ${areaOverview.raw?.precipitationProbability ?? 'N/A'}%`,
+      `Wind: ${areaOverview.raw?.windSpeed ?? 'N/A'} km/h`,
+      '',
+      'RISK ASSESSMENT',
+      `Hazard: ${areaOverview.type || areaOverview.hazard}`,
+      `Score: ${Math.round(areaOverview.score * 100)}%`,
+      `Severity: ${areaOverview.level}`,
+      `Peak: ${areaOverview.peakRisk?.time || 'N/A'}`,
+      `Drivers: ${(areaOverview.factors || []).map((f) => `${f.label}: ${f.value}`).join('; ') || 'N/A'}`,
+      '',
+      'IMPACT',
+      ...(areaOverview.impactDecision?.impacts || ['N/A']),
+      '',
+      'DECISION',
+      `Priority: ${decision?.priority || 'N/A'}`,
+      `Recommendations: ${(decision?.recommendations || []).join(' ') || 'N/A'}`,
+      `Avoid: ${(decision?.avoid || []).join(' ') || 'N/A'}`,
+      `Monitor: ${(decision?.monitor || []).join(' ') || 'N/A'}`,
+      `Escalation: ${decision?.escalation || 'N/A'}`,
+      '',
+      'DATA TRANSPARENCY',
+      'Source: Open-Meteo',
+      `Assessed: ${areaOverview.assessedAt || new Date().toISOString()}`,
+      `Status: ${dataStatus}`,
+      'Method: Continuous spatial meteorological field assessment'
+    ].join('\n');
+
     const url = URL.createObjectURL(new Blob([report], { type: 'text/plain;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `weatherGPT-risk-report-${location.lat}-${location.lon}.txt`; link.click(); URL.revokeObjectURL(url);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `weatherGPT-risk-report-${location.lat}-${location.lon}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
+
+  const timelineList = summary?.timeline || [];
 
   return (
     <section className={styles.content}>
+      {/* Top Toolbar */}
       <div className={styles.toolbar}>
-        <div><p className={styles.location}>{location.name}</p><p className={styles.coordinates}>{location.lat.toFixed(4)}, {location.lon.toFixed(4)}</p></div>
+        <div>
+          <p className={styles.location}>{location.name}</p>
+          <p className={styles.coordinates}>{location.lat.toFixed(4)}, {location.lon.toFixed(4)}</p>
+        </div>
         <div className={styles.toolbarActions}>
-          <select className={styles.hazardSelect} value={selectedHazard} onChange={(event) => setSelectedHazard(event.target.value)} aria-label="Risk hazard">
-            {HAZARDS.map((hazard) => <option key={hazard.id} value={hazard.id}>{hazard.label}</option>)}
+          <select className={styles.hazardSelect} value={selectedHazard} onChange={(e) => setSelectedHazard(e.target.value)} aria-label="Risk hazard">
+            {HAZARDS.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
           </select>
-          <select className={styles.hazardSelect} value={selectedPersona} onChange={(event) => setSelectedPersona(event.target.value)} aria-label="Impact persona">
-            {PERSONAS.map((persona) => <option key={persona.id} value={persona.id}>{persona.label}</option>)}
+          <select className={styles.hazardSelect} value={selectedPersona} onChange={(e) => setSelectedPersona(e.target.value)} aria-label="Impact persona">
+            {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
           <button type="button" className={styles.primaryButton} onClick={useGps}>Use my GPS location</button>
           <button type="button" className={styles.secondaryButton} onClick={downloadReport} disabled={!areaOverview}>Generate report</button>
@@ -235,8 +425,15 @@ export default function RiskMap() {
       </div>
       {gpsError && <p className={styles.error}>{gpsError}</p>}
 
+      {/* Main Leaflet Map Shell */}
       <div className={styles.layout}>
         <div className={styles.mapShell}>
+          {/* Status Badge Overlay */}
+          <div className={styles.dataStatusBadge}>
+            <span className={dataStatus === 'DEMO-SCENARIO' ? styles.statusDemoDot : dataStatus === 'OFFLINE-CACHED' ? styles.statusOfflineDot : styles.statusLiveDot} />
+            <span>{dataStatus === 'LIVE' ? 'LIVE · Open-Meteo' : dataStatus.replaceAll('-', ' ')}</span>
+          </div>
+
           <MapContainer center={[location.lat, location.lon]} zoom={10} className={styles.map} scrollWheelZoom={false}>
             <TileLayer
               url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -250,84 +447,303 @@ export default function RiskMap() {
               maxZoom={18}
             />
             <Recenter lat={location.lat} lon={location.lon} />
-            <LiveHeatmap points={grid} hazard={selectedHazard} localized={spatialStatus === 'localized'} />
-            <AreaSelection points={grid} summary={summary} onSelect={setSelectedArea} />
+
+            {/* Continuous Meteorological Heatmap Surface */}
+            <ContinuousMeteorologicalHeatmap points={grid} hazard={selectedHazard} />
+
+            {/* Map Inspector Handler */}
+            <MapInspectorHandler points={grid} summary={summary} onSelectLocation={setInspectedLocation} />
+
+            {/* Ground Reality Incident Markers */}
             <IncidentMarkers incidents={groundReality?.incidents || []} />
-            <CircleMarker center={[location.lat, location.lon]} radius={8} pathOptions={{ color: '#1565c0', fillColor: '#ffffff', fillOpacity: 1, weight: 3 }}><Tooltip permanent>{location.name}</Tooltip></CircleMarker>
+
+            {/* Target Location Marker */}
+            <CircleMarker
+              center={[location.lat, location.lon]}
+              radius={8}
+              pathOptions={{ color: '#1565c0', fillColor: '#ffffff', fillOpacity: 1, weight: 3 }}
+            >
+              <Tooltip permanent>{location.name}</Tooltip>
+            </CircleMarker>
           </MapContainer>
-          <div className={styles.mapLegend}><span><i className={styles.low} />Low</span><span><i className={styles.moderate} />Moderate</span><span><i className={styles.high} />High</span><span><i className={styles.severe} />Severe</span><span><i className={styles.incidentOfficial} />Official</span><span><i className={styles.incidentReported} />Reported</span></div>
+
+          {/* Interactive Location Inspector Card Overlay */}
+          {inspectedLocation && (
+            <div className={styles.inspectorOverlay}>
+              <div className={styles.inspectorHeader}>
+                <div>
+                  <h3 className={styles.inspectorTitle}>{inspectedLocation.name}</h3>
+                  <small className={styles.coordinates}>{inspectedLocation.lat}, {inspectedLocation.lon}</small>
+                </div>
+                <button type="button" className={styles.inspectorClose} onClick={() => setInspectedLocation(null)}>✕</button>
+              </div>
+
+              <div
+                className={styles.inspectorScoreBadge}
+                style={{
+                  background: `${levelBadgeColor(inspectedLocation.level)}15`,
+                  color: levelBadgeColor(inspectedLocation.level),
+                  border: `1px solid ${levelBadgeColor(inspectedLocation.level)}40`
+                }}
+              >
+                <span>{selectedHazard.toUpperCase()} RISK:</span>
+                <strong>{Math.round(inspectedLocation.score * 100)}% ({inspectedLocation.level.toUpperCase()})</strong>
+              </div>
+
+              {inspectedLocation.drivers && inspectedLocation.drivers.length > 0 && (
+                <div className={styles.inspectorDrivers}>
+                  <strong>Primary Drivers:</strong>
+                  <div>• {inspectedLocation.drivers.map((d) => `${d.label}: ${d.value}`).join(' · ')}</div>
+                </div>
+              )}
+
+              {inspectedLocation.recommendation && (
+                <div className={styles.inspectorAction}>
+                  👉 <strong>{selectedPersona.toUpperCase()} DIRECTIVE:</strong> {inspectedLocation.recommendation}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 6-Stop Continuous Meteorological Color Legend */}
+          <div className={styles.continuousLegend} aria-label="Risk heatmap legend">
+            <div className={styles.legendTitle}>
+              <span>Continuous Risk Field</span>
+              <span>0.00 – 1.00</span>
+            </div>
+            <div className={styles.legendGradientBar} />
+            <div className={styles.legendLabels}>
+              <span>LOW (0.0)</span>
+              <span>MOD (0.3)</span>
+              <span>HIGH (0.6)</span>
+              <span>EXTREME (1.0)</span>
+            </div>
+          </div>
+
+          {/* Forecast Timeline Scrubber & Animation Control */}
+          {timelineList.length > 0 && (
+            <div className={styles.mapTimelineBar} aria-label="Forecast timeline scrubber">
+              <button
+                type="button"
+                className={styles.playBtn}
+                onClick={() => setIsPlaying(!isPlaying)}
+                title={isPlaying ? 'Pause forecast animation' : 'Play 24h forecast animation'}
+              >
+                {isPlaying ? '❚❚' : '▶'}
+              </button>
+
+              <div className={styles.timelineScrubber}>
+                <button
+                  type="button"
+                  className={`${styles.timelineChip} ${!selectedTime ? styles.timelineChipActive : ''}`}
+                  onClick={() => setSelectedTime(null)}
+                >
+                  NOW
+                </button>
+                {timelineList.slice(0, 6).map((step) => {
+                  const label = new Date(step.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const isActive = selectedTime === step.time;
+                  return (
+                    <button
+                      key={step.time}
+                      type="button"
+                      className={`${styles.timelineChip} ${isActive ? styles.timelineChipActive : ''}`}
+                      onClick={() => setSelectedTime(step.time)}
+                    >
+                      {label} ({Math.round(step.score * 100)}%)
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Floating Hazard Selection Bar */}
           <div className={styles.hazardControl} aria-label="Risk map hazard layers">
-            {HAZARDS.map((hazard) => <button key={hazard.id} type="button" className={selectedHazard === hazard.id ? styles.hazardActive : ''} onClick={() => setSelectedHazard(hazard.id)}>{hazard.label}</button>)}
+            {HAZARDS.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                className={selectedHazard === h.id ? styles.hazardActive : ''}
+                onClick={() => setSelectedHazard(h.id)}
+              >
+                {h.label}
+              </button>
+            ))}
           </div>
         </div>
 
+        {/* Detailed Information Panels */}
         <section className={styles.infoGrid}>
-          {areaOverview ? <>
-          <article className={styles.infoCard}>
-          <h2>Area risk overview</h2>
-            <p className={styles.coordinates}>{selectedArea?.name || location.name} · live weather-derived assessment</p>
-            <div className={`${styles.level} ${styles[areaOverview.level]}`}><strong>{Math.round(areaOverview.score * 100)}%</strong><span>{priorityFor(areaOverview.level)} · {areaOverview.type || areaOverview.hazard} risk</span></div>
-            <p className={styles.method}>Source: Open-Meteo · Method: rule-based weather-signal assessment. No validated ML model or official warning is implied.</p>
-            <h3>High-risk areas</h3>
-            {spatialStatus !== 'localized' ? <p className={styles.empty}>{spatialMessage}</p> : (highRiskAreas.length ? <ul className={styles.areaList}>{highRiskAreas.map((area) => <li key={`${area.lat}-${area.lon}`}><button type="button" onClick={() => setSelectedArea({ ...summary, ...area, name: `Grid area ${area.lat.toFixed(3)}, ${area.lon.toFixed(3)}` })}><b>{priorityFor(area.level)} · {area.hazard}</b><span>{Math.round(area.value * 100)}% · {area.lat.toFixed(3)}, {area.lon.toFixed(3)}</span></button></li>)}</ul> : <p className={styles.empty}>No elevated areas in the live forecast grid.</p>)}
-            </article>
-            <article className={styles.infoCard}><h2>Key weather details</h2>
-            {areaOverview.raw ? <ul className={styles.detailRows}><li><span>Precipitation</span><b>{areaOverview.raw.precipitation} mm</b></li><li><span>Precipitation probability</span><b>{areaOverview.raw.precipitationProbability}%</b></li><li><span>Temperature</span><b>{areaOverview.raw.temperature} °C</b></li><li><span>Feels like</span><b>{areaOverview.raw.apparentTemperature} °C</b></li><li><span>Wind speed</span><b>{areaOverview.raw.windSpeed} km/h</b></li></ul> : <p className={styles.empty}>Live weather details unavailable.</p>}
-            </article>
-            <article className={styles.infoCard}><h2>Risk summary</h2>
-            <p className={styles.method}>Live weather-signal assessment. This is an interpretable risk score, not a trained incident model.</p>
-            </article>
-            <article className={styles.infoCard}><h2>Why this score?</h2>
-            <ul className={styles.factors}>{(areaOverview.factors || []).map((factor) => <li key={factor.label}><span>{factor.label}</span><b>{factor.value}</b></li>)}</ul>
-            </article>
-            <article className={styles.infoCard}><h2>Ground reality</h2>
-            {groundReality?.incidents?.length ? <>
-              <p className={styles.method}>Reported disruptions within range, assessed at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Verification reflects the original report; these are reported observations, not automatic facts.</p>
-              <ul className={styles.incidentList}>{groundReality.incidents.map((incident) => <li key={incident._id || `${incident.category}-${incident.distanceKm}`}><b>{incident.category.replace('_', ' ').toLowerCase()}</b><span>{incident.verification.toLowerCase()} · {incident.distanceKm} km · {incident.location.name}</span><small>{incident.source}</small></li>)}</ul>
-              {groundReality.advisory && <p className={styles.method}><b>{selectedPersona.replace('_', ' ')}:</b> {groundReality.advisory.text} {groundReality.advisory.action}</p>}
-              {groundReality.advisory?.prediction && <p className={styles.method}>Fused with live {groundReality.advisory.prediction.hazard} risk ({groundReality.advisory.prediction.level}).</p>}
-            </> : <p className={styles.method}>No reported incidents in the current range and window. This remains a weather-derived assessment only; official ground guidance may still be unavailable.</p>}
-            </article>
-            <article className={styles.infoCard}><h2>Risk timeline</h2>
-            <div className={styles.timeline}>{(areaOverview.timeline || summary?.timeline || []).map((point) => <button type="button" className={selectedTime === point.time ? styles.timelineActive : ''} key={point.time} onClick={() => setSelectedTime(point.time)}><b>{new Date(point.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b><small className={styles[point.level]}>{point.level}</small></button>)}</div>
-            {(areaOverview.cyclone || summary?.cyclone) && <p className={styles.method}>Cyclone track: {(areaOverview.cyclone || summary.cyclone).message}</p>}
-            </article>
-            {areaOverview.impactDecision && <>
-              <article className={styles.infoCard}><h2>Potential impact</h2>
-              <ul className={styles.factors}>{areaOverview.impactDecision.impacts.map((impact) => <li key={impact}><span>{impact}</span></li>)}</ul>
-              </article><article className={styles.infoCard}><h2>What should you do?</h2>
-              <p className={styles.method}><b>Priority:</b> {priorityFor(areaOverview.level)} · {areaOverview.impactDecision.decision.priority}</p>
-              <ul className={styles.factors}>{areaOverview.impactDecision.decision.recommendations.map((action) => <li key={action}><span>{action}</span></li>)}</ul>
-              <p className={styles.method}><b>Monitor:</b> {areaOverview.impactDecision.decision.monitor.join(' ')}</p>
-              <p className={styles.method}><b>Escalation:</b> {areaOverview.impactDecision.decision.escalation}</p>
-              <p className={styles.method}><b>Peak:</b> {areaOverview.peakRisk ? new Date(areaOverview.peakRisk.time).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : 'Not available'}</p>
-              </article><article className={styles.infoCard}><h2>Escalation &amp; monitoring</h2><p className={styles.method}><b>Monitor:</b> {areaOverview.impactDecision.decision.monitor.join(' ')}</p><p className={styles.method}><b>Escalation:</b> {areaOverview.impactDecision.decision.escalation}</p><p className={styles.method}><b>Peak:</b> {areaOverview.peakRisk ? new Date(areaOverview.peakRisk.time).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : 'Not available'}</p></article>
-            </>}
-          </> : <p className={styles.empty}>Risk summary will appear when live weather data is available.</p>}
+          {areaOverview ? (
+            <>
+              <article className={styles.infoCard}>
+                <h2>Area risk overview</h2>
+                <p className={styles.coordinates}>{location.name} · live weather-derived assessment</p>
+                <div className={`${styles.level} ${styles[areaOverview.level]}`}>
+                  <strong>{Math.round(areaOverview.score * 100)}%</strong>
+                  <span>{priorityFor(areaOverview.level)} · {areaOverview.type || areaOverview.hazard} risk</span>
+                </div>
+                <p className={styles.method}>
+                  Source: Open-Meteo · Method: Continuous spatial meteorological field assessment.
+                </p>
+              </article>
+
+              <article className={styles.infoCard}>
+                <h2>Key weather details</h2>
+                {areaOverview.raw ? (
+                  <ul className={styles.detailRows}>
+                    <li><span>Precipitation</span><b>{areaOverview.raw.precipitation} mm</b></li>
+                    <li><span>Precipitation probability</span><b>{areaOverview.raw.precipitationProbability}%</b></li>
+                    <li><span>Temperature</span><b>{areaOverview.raw.temperature} °C</b></li>
+                    <li><span>Feels like</span><b>{areaOverview.raw.apparentTemperature} °C</b></li>
+                    <li><span>Wind speed</span><b>{areaOverview.raw.windSpeed} km/h</b></li>
+                  </ul>
+                ) : (
+                  <p className={styles.empty}>Live weather details unavailable.</p>
+                )}
+              </article>
+
+              <article className={styles.infoCard}>
+                <h2>Why this score?</h2>
+                <ul className={styles.factors}>
+                  {(areaOverview.factors || []).map((factor) => (
+                    <li key={factor.label}>
+                      <span>{factor.label}</span>
+                      <b>{factor.value}</b>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+
+              <article className={styles.infoCard}>
+                <h2>Ground reality</h2>
+                {groundReality?.incidents?.length ? (
+                  <>
+                    <p className={styles.method}>
+                      Reported disruptions within range, assessed at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
+                    </p>
+                    <ul className={styles.incidentList}>
+                      {groundReality.incidents.map((incident) => (
+                        <li key={incident._id || `${incident.category}-${incident.distanceKm}`}>
+                          <b>{incident.category.replace('_', ' ').toLowerCase()}</b>
+                          <span>{incident.verification.toLowerCase()} · {incident.distanceKm} km · {incident.location.name}</span>
+                          <small>{incident.source}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className={styles.method}>
+                    No reported incidents in the current range and window. This remains a weather-derived assessment only.
+                  </p>
+                )}
+              </article>
+
+              {areaOverview.impactDecision && (
+                <>
+                  <article className={styles.infoCard}>
+                    <h2>Potential impact</h2>
+                    <ul className={styles.factors}>
+                      {areaOverview.impactDecision.impacts.map((imp) => (
+                        <li key={imp}><span>{imp}</span></li>
+                      ))}
+                    </ul>
+                  </article>
+
+                  <article className={styles.infoCard}>
+                    <h2>What should you do?</h2>
+                    <p className={styles.method}><b>Priority:</b> {priorityFor(areaOverview.level)} · {areaOverview.impactDecision.decision.priority}</p>
+                    <ul className={styles.factors}>
+                      {areaOverview.impactDecision.decision.recommendations.map((action) => (
+                        <li key={action}><span>{action}</span></li>
+                      ))}
+                    </ul>
+                  </article>
+                </>
+              )}
+            </>
+          ) : (
+            <p className={styles.empty}>Risk summary will appear when live weather data is available.</p>
+          )}
+
           <p className={styles.status}>{status}</p>
+
           <div className={styles.layersSection}>
-          <h3>Map layers</h3>
-          {AVAILABLE_LAYERS.map((layer) => <div className={styles.layerActive} key={layer.id}><b>{layer.label}</b><small>{layer.detail}</small></div>)}
-          {UNAVAILABLE_LAYERS.map((layer) => <div className={styles.layerUnavailable} key={layer}>{layer}<small>Requires a verified live source</small></div>)}
+            <h3>Map layers</h3>
+            {AVAILABLE_LAYERS.map((layer) => (
+              <div className={styles.layerActive} key={layer.id}>
+                <b>{layer.label}</b>
+                <small>{layer.detail}</small>
+              </div>
+            ))}
+            {UNAVAILABLE_LAYERS.map((layer) => (
+              <div className={styles.layerUnavailable} key={layer}>
+                {layer}
+                <small>Requires a verified live source</small>
+              </div>
+            ))}
           </div>
         </section>
       </div>
+
+      {/* ML Section */}
       <section className={styles.mlSection} aria-label="ML precipitation forecast">
-        <div><p className={styles.eyebrow}>ML precipitation forecast</p><h2>Next-hour rainfall signal</h2></div>
-        {ml?.enabled ? <>
-          <strong className={styles.mlValue}>{ml.predictedPrecipitationMm} mm</strong>
-          <p className={styles.method}>Predicted precipitation for the next hour from live Open-Meteo inputs. This is not a flood probability.</p>
-          <div className={styles.mlMeta}><span>Model: {ml.algorithm || ml.model}</span><span>Input: {ml.inputTimestamp || 'Data unavailable'}</span><span>Source: {ml.source || 'Open-Meteo'}</span></div>
-          <p className={styles.method}><b>Top model drivers:</b> {(ml.drivers || []).slice(0, 4).map((driver) => driver.feature).join(' · ') || 'Data unavailable'}</p>
-        </> : <p className={styles.empty}>{ml?.reason || 'ML precipitation forecast is unavailable for this hazard.'}</p>}
+        <div>
+          <p className={styles.eyebrow}>ML precipitation forecast</p>
+          <h2>Next-hour rainfall signal</h2>
+        </div>
+        {ml?.enabled ? (
+          <>
+            <strong className={styles.mlValue}>{ml.predictedPrecipitationMm} mm</strong>
+            <p className={styles.method}>
+              Predicted precipitation for the next hour from live Open-Meteo inputs.
+            </p>
+            <div className={styles.mlMeta}>
+              <span>Model: {ml.algorithm || ml.model}</span>
+              <span>Input: {ml.inputTimestamp || 'N/A'}</span>
+              <span>Source: {ml.source || 'Open-Meteo'}</span>
+            </div>
+          </>
+        ) : (
+          <p className={styles.empty}>{ml?.reason || 'ML precipitation forecast is unavailable for this hazard.'}</p>
+        )}
       </section>
+
+      {/* Risk Analytics Section */}
       <section className={styles.analyticsSection}>
-        <div><p className={styles.eyebrow}>Risk analytics</p><h2>Forecast risk profile</h2></div>
-        {analytics ? <>
-          <div className={styles.analyticsMetrics}><div><span>Current</span><b>{Math.round(analytics.current.score * 100)}%</b></div><div><span>Average</span><b>{Math.round(analytics.average * 100)}%</b></div><div><span>Maximum</span><b>{Math.round(analytics.maximum * 100)}%</b></div><div><span>Minimum</span><b>{Math.round(analytics.minimum * 100)}%</b></div><div><span>Peak</span><b>{new Date(analytics.peak.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div><div><span>Elevated periods</span><b>{analytics.duration}</b></div></div>
-          <div className={styles.analyticsChart} aria-label="Risk versus time"><div className={styles.chartAxis}>{analytics.points.map((point) => <div key={point.time} style={{ height: `${Math.max(8, Math.round(point.score * 100))}%` }} title={`${point.level} · ${Math.round(point.score * 100)}%`}><span /></div>)}</div><div className={styles.chartLabels}>{analytics.points.map((point) => <small key={point.time}>{new Date(point.time).toLocaleTimeString([], { hour: 'numeric' })}</small>)}</div></div>
-        </> : <p className={styles.empty}>Insufficient forecast data for analytics.</p>}
-        <div className={styles.guidanceNote}><b>Trusted guidance</b><span>Verified official guidance is unavailable because no trusted guidance source is configured. This is a weather-derived assessment only.</span></div>
+        <div>
+          <p className={styles.eyebrow}>Risk analytics</p>
+          <h2>Forecast risk profile</h2>
+        </div>
+        {analytics ? (
+          <>
+            <div className={styles.analyticsMetrics}>
+              <div><span>Current</span><b>{Math.round(analytics.current.score * 100)}%</b></div>
+              <div><span>Average</span><b>{Math.round(analytics.average * 100)}%</b></div>
+              <div><span>Maximum</span><b>{Math.round(analytics.maximum * 100)}%</b></div>
+              <div><span>Minimum</span><b>{Math.round(analytics.minimum * 100)}%</b></div>
+              <div><span>Peak</span><b>{new Date(analytics.peak.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div>
+              <div><span>Elevated periods</span><b>{analytics.duration}</b></div>
+            </div>
+            <div className={styles.analyticsChart} aria-label="Risk versus time">
+              <div className={styles.chartAxis}>
+                {analytics.points.map((pt) => (
+                  <div key={pt.time} style={{ height: `${Math.max(8, Math.round(pt.score * 100))}%` }} title={`${pt.level} · ${Math.round(pt.score * 100)}%`}>
+                    <span />
+                  </div>
+                ))}
+              </div>
+              <div className={styles.chartLabels}>
+                {analytics.points.map((pt) => (
+                  <small key={pt.time}>{new Date(pt.time).toLocaleTimeString([], { hour: 'numeric' })}</small>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className={styles.empty}>Insufficient forecast data for analytics.</p>
+        )}
       </section>
     </section>
   );

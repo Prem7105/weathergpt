@@ -142,6 +142,19 @@
   border-color: #38bdf8 !important;
 }
 
+.resetDemoBtn {
+  background: rgba(147, 51, 234, 0.25) !important;
+  border-color: rgba(168, 85, 247, 0.5) !important;
+  color: #d8b4fe !important;
+  margin-left: auto;
+}
+
+.resetDemoBtn:hover {
+  background: rgba(147, 51, 234, 0.45) !important;
+  border-color: #c084fc !important;
+  color: #ffffff !important;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -211,6 +224,64 @@
   display: flex;
   align-items: flex-start;
   gap: 0.4rem;
+}
+
+.mlBox {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.85));
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.mlHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.mlTitle {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #34d399;
+  letter-spacing: 0.05em;
+}
+
+.mlBadge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  background: rgba(52, 211, 153, 0.2);
+  color: #6ee7b7;
+  border-radius: 4px;
+}
+
+.mlGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.6rem;
+}
+
+.mlStat {
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mlStatLabel {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-bottom: 0.15rem;
+}
+
+.mlStatVal {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f1f5f9;
 }
 
 .decisionBox {

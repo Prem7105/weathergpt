@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:core": "node scripts/verify-core.mjs"
+    "test:aurora": "node scripts/verify-aurora.mjs",
+    "test:core": "node scripts/verify-core.mjs && node scripts/verify-full-system.mjs && node scripts/verify-aurora.mjs",
+    "test:sih-demo": "node scripts/verify-sih-demo.mjs",
+    "test:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
