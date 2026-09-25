@@ -105,7 +105,7 @@ export default function CompareModal({
       <div className="compare-modal-box" onClick={(e) => e.stopPropagation()}>
         <div className="compare-modal-header">
           <h2 className="compare-modal-title">
-            <span>⚖️</span> {i18n.compareTitle}
+            {i18n.compareTitle}
           </h2>
           <button className="compare-modal-close" onClick={onClose}>✕</button>
         </div>

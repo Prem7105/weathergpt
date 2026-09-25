@@ -255,7 +255,12 @@ export default function RiskIntelligenceCard({
 
       {/* Q6: WHAT HAS THE SYSTEM ALERTED? & Action Footer */}
       <div className={styles.footerBar}>
-        <Link href="/risk" className={styles.mapLinkBtn}>
+        <Link
+          href={riskData?.latitude != null && riskData?.longitude != null
+            ? `/risk?${new URLSearchParams({ lat: riskData.latitude, lon: riskData.longitude })}`
+            : '/risk'}
+          className={styles.mapLinkBtn}
+        >
           🗺️ Open Full Risk Map & Spatial Heatmap ➔
         </Link>
         <button

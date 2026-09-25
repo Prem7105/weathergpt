@@ -31,6 +31,7 @@ import AlertBanner from '@/components/UI/AlertBanner';
 import Toast from '@/components/UI/Toast';
 import ErrorBoundary from '@/components/UI/ErrorBoundary';
 import PWAInstallPrompt from '@/components/PWAInstallPrompt';
+import WeatherBackdrop from '@/components/UI/WeatherBackdrop';
 import RiskIntelligenceCard from '@/components/Risk/RiskIntelligenceCard';
 import { saveEdgeState, loadEdgeState } from '@/lib/offlineStorage';
 
@@ -660,6 +661,7 @@ export default function WeatherGptHome() {
   return (
     <ErrorBoundary>
       <div className="app-wrapper">
+        <WeatherBackdrop condition={weather?.condition} isDaytime={weather?.isDaytime} />
         <PWAInstallPrompt />
         {/* GPS Permission / Signal Acquisition Overlay */}
         <GpsOverlay
@@ -808,7 +810,7 @@ export default function WeatherGptHome() {
                 if (!showSevenDay) setShowTwentyFourHr(false);
               }}
             >
-              <span>📅</span> {i18n.forecast7}
+              {i18n.forecast7}
             </button>
             <button
               id="toggle-24hr-btn"
@@ -818,7 +820,7 @@ export default function WeatherGptHome() {
                 if (!showTwentyFourHr) setShowSevenDay(false);
               }}
             >
-              <span>🕐</span> {i18n.forecast24}
+              {i18n.forecast24}
             </button>
           </div>
 

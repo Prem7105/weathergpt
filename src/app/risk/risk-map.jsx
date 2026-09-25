@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import styles from './risk.module.css';
+import WeatherBackdrop from '@/components/UI/WeatherBackdrop';
 
 const DEFAULT_LOCATION = { lat: 19.076, lon: 72.8777, name: 'Mumbai, Maharashtra' };
 
@@ -253,8 +254,32 @@ function levelBadgeColor(level) {
   return '#2e7d32';
 }
 
+// /api/risk returns raw readings rather than condition text, so map them onto the
+// vocabulary WeatherBackdrop understands.
+function skyCondition(w) {
+  if (!w) return 'partly cloudy';
+  if (Number(w.precipitation) >= 0.5) return Number(w.windSpeed) >= 50 ? 'thunderstorm' : 'rain';
+  if (Number(w.cloudCover) >= 85) return 'overcast';
+  if (Number(w.cloudCover) >= 35) return 'partly cloudy';
+  return 'clear';
+}
+
+function isDaytimeAt(localIsoTime) {
+  const hour = Number(String(localIsoTime || '').slice(11, 13));
+  return !Number.isFinite(hour) || !localIsoTime ? true : hour >= 6 && hour < 18;
+}
+
+function initialLocation() {
+  if (typeof window === 'undefined') return DEFAULT_LOCATION;
+  const params = new URLSearchParams(window.location.search);
+  const lat = Number(params.get('lat'));
+  const lon = Number(params.get('lon'));
+  if (!params.get('lat') || !params.get('lon') || !Number.isFinite(lat) || !Number.isFinite(lon)) return DEFAULT_LOCATION;
+  return { lat, lon, name: params.get('name') || `${lat.toFixed(3)}, ${lon.toFixed(3)}` };
+}
+
 export default function RiskMap() {
-  const [location, setLocation] = useState(DEFAULT_LOCATION);
+  const [location, setLocation] = useState(initialLocation);
   const [summary, setSummary] = useState(null);
   const [ml, setMl] = useState(null);
   const [grid, setGrid] = useState([]);
@@ -267,6 +292,7 @@ export default function RiskMap() {
   const [dataStatus, setDataStatus] = useState('LIVE');
   const [groundReality, setGroundReality] = useState(null);
   const [inspectedLocation, setInspectedLocation] = useState(null);
+  const [liveWeather, setLiveWeather] = useState(null);
 
   const loadRisk = useCallback(async (nextLocation) => {
     setStatus('Loading live Open-Meteo weather signals...');
@@ -278,16 +304,21 @@ export default function RiskMap() {
       if (!summaryResponse.ok) throw new Error('Risk service unavailable');
       const summaryData = await summaryResponse.json();
 
-      const mlData = selectedHazard === 'flood'
-        ? await fetch(`/api/ml_precipitation?${new URLSearchParams({ lat: nextLocation.lat, lon: nextLocation.lon })}`)
-          .then((response) => response.ok ? response.json() : ({ enabled: false, reason: 'ML inference is temporarily unavailable.' }))
-          .catch(() => ({ enabled: false, reason: 'ML inference is temporarily unavailable.' }))
-        : { enabled: false, reason: 'ML precipitation forecast is available only for rain-derived assessment.' };
+      // /api/risk already runs the ML model server-side; /api/ml_precipitation only
+      // exists as a Vercel Python function, so it's just a fallback.
+      const mlData = selectedHazard !== 'flood'
+        ? { enabled: false, reason: 'ML precipitation forecast is available only for rain-derived assessment.' }
+        : summaryData.ml?.enabled
+          ? summaryData.ml
+          : await fetch(`/api/ml_precipitation?${new URLSearchParams({ lat: nextLocation.lat, lon: nextLocation.lon })}`)
+            .then((response) => response.ok ? response.json() : (summaryData.ml || { enabled: false, reason: 'ML inference is temporarily unavailable.' }))
+            .catch(() => summaryData.ml || { enabled: false, reason: 'ML inference is temporarily unavailable.' });
 
       setSummary(summaryData.risk);
       setMl(mlData);
       setGrid(summaryData.heatmap?.points || []);
       setGroundReality(summaryData.incidents || null);
+      setLiveWeather(summaryData.weatherProvider || null);
       setDataStatus(summaryData.dataStatus || 'LIVE');
       setStatus(`Live data from ${summaryData.source} · updated ${new Date(summaryData.risk?.assessedAt || Date.now()).toLocaleTimeString()}`);
     } catch {
@@ -406,6 +437,7 @@ export default function RiskMap() {
 
   return (
     <section className={styles.content}>
+      <WeatherBackdrop condition={skyCondition(liveWeather)} isDaytime={isDaytimeAt(liveWeather?.time)} />
       {/* Top Toolbar */}
       <div className={styles.toolbar}>
         <div>
@@ -436,9 +468,13 @@ export default function RiskMap() {
 
           <MapContainer center={[location.lat, location.lon]} zoom={10} className={styles.map} scrollWheelZoom={false}>
             <TileLayer
-              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution={'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
-              maxZoom={19}
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+              attribution="&copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
+              maxZoom={16}
+            />
+            <TileLayer
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+              maxZoom={16}
             />
             <TileLayer
               url="/api/risk/tiles/{z}/{x}/{y}"

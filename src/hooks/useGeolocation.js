@@ -38,21 +38,29 @@ export function useGeolocation(initialCity = '', initialLat = null, initialLng =
     setGpsState('waiting');
     setIsDetectingLoc(true);
 
-    const requestPosition = () => new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 0
-      });
+    // Chrome only starts getCurrentPosition's own timeout after the permission
+    // prompt is answered, so an ignored/dismissed prompt would leave the
+    // "Acquiring GPS" overlay up forever. The watchdog guarantees it settles.
+    const requestPosition = (highAccuracy, timeoutMs) => new Promise((resolve, reject) => {
+      const watchdog = setTimeout(() => reject({ code: 3, message: 'Location request timed out' }), timeoutMs + 5000);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { clearTimeout(watchdog); resolve(pos); },
+        (err) => { clearTimeout(watchdog); reject(err); },
+        { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge: highAccuracy ? 0 : 300000 }
+      );
     });
 
     try {
       let position;
       try {
-        position = await requestPosition();
+        position = await requestPosition(true, 20000);
       } catch (err) {
         if (err.code !== 3) throw err;
-        position = await requestPosition();
+        const permission = await navigator.permissions?.query({ name: 'geolocation' }).catch(() => null);
+        if (permission?.state === 'prompt') throw err;
+        // Desktops without a GPS chip often time out in high-accuracy mode;
+        // fall back to network/Wi-Fi positioning.
+        position = await requestPosition(false, 15000);
       }
 
       const { latitude, longitude, accuracy } = position.coords;

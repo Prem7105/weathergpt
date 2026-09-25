@@ -19,7 +19,9 @@ export default function NotificationSettings({ currentLoc, authenticatedUser, sh
     if (typeof window !== 'undefined' && 'Notification' in window) setPermission(Notification.permission);
   }, []);
 
-  if (!authenticatedUser) return null;
+  if (!authenticatedUser) {
+    return <p className="settings-desc">Log in from the account icon to turn on weather push alerts for your location.</p>;
+  }
 
   const saveSubscription = async (pushSubscription) => {
     if (currentLoc?.latitude == null || currentLoc?.longitude == null) throw new Error('Choose a weather location first.');

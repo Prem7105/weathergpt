@@ -1,5 +1,6 @@
-const CACHE_NAME = 'weathergpt-static-v1';
-const DATA_CACHE_NAME = 'weathergpt-data-v1';
+// Bump these on any caching-strategy change so activate() purges old caches.
+const CACHE_NAME = 'weathergpt-static-v2';
+const DATA_CACHE_NAME = 'weathergpt-data-v2';
 const STATIC_DESTINATIONS = new Set(['style', 'script', 'font', 'image']);
 const DATA_API_PATHS = ['/api/risk', '/api/incidents'];
 
@@ -22,21 +23,19 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
 
   if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith('/api/')) {
-    // Stale-while-revalidate for the live weather/ground-reality endpoints so a
-    // brief network outage still shows the last fetched data with its visible
-    // assessedAt timestamp instead of a blank screen.
+    // Network-first for live weather/ground-reality: always show fresh data,
+    // fall back to the last response (with its visible assessedAt timestamp)
+    // only when the network is actually down.
     const isDataApi = event.request.method === 'GET'
       && DATA_API_PATHS.some((path) => requestUrl.pathname === path || requestUrl.pathname.startsWith(`${path}/`));
     if (isDataApi) {
       event.respondWith(
-        caches.open(DATA_CACHE_NAME).then(async (cache) => {
-          const cachedResponse = await cache.match(event.request);
-          const networkResponse = fetch(event.request).then((response) => {
+        caches.open(DATA_CACHE_NAME).then((cache) => fetch(event.request)
+          .then((response) => {
             if (response.ok) cache.put(event.request, response.clone());
             return response;
-          }).catch(() => cachedResponse);
-          return cachedResponse || networkResponse;
-        }),
+          })
+          .catch(async () => (await cache.match(event.request)) || Response.error())),
       );
     }
     return;
@@ -53,14 +52,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Only content-hashed production build output is immutable, so only it may be
+  // cache-first. Dev chunks (e.g. /_next/static/chunks/app/page.js) carry no
+  // hash, and everything else is network-first so a new deploy shows up at once.
+  const isImmutable = requestUrl.pathname.startsWith('/_next/static/') && /[0-9a-f]{16}/i.test(requestUrl.pathname);
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      const cachedResponse = await cache.match(event.request);
-      const networkResponse = fetch(event.request).then((response) => {
-        if (response.ok) cache.put(event.request, response.clone());
-        return response;
-      }).catch(() => cachedResponse);
-      return cachedResponse || networkResponse;
+      if (isImmutable) {
+        const cachedResponse = await cache.match(event.request);
+        if (cachedResponse) return cachedResponse;
+      }
+      return fetch(event.request)
+        .then((response) => {
+          if (response.ok) cache.put(event.request, response.clone());
+          return response;
+        })
+        .catch(async () => (await cache.match(event.request)) || Response.error());
     }),
   );
 });

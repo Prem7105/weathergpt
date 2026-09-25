@@ -261,3 +261,78 @@
   .inspectorOverlay { top: auto; bottom: 80px; left: 10px; right: 10px; width: auto; }
 }
 
+
+/* ===== Glassmorphism theme (matches glass-theme.css) ===== */
+.page { position: relative; background: transparent; color: var(--text); }
+.header, .content > :not(:first-child) { position: relative; z-index: 1; }
+.header h1 { color: #FFFFFF; }
+.eyebrow { color: #7DD3FC; }
+.back, .primaryButton, .playBtn { background: var(--brand-gradient); color: #FFFFFF; box-shadow: 0 0 24px rgba(59, 130, 246, 0.25); }
+.back:hover, .primaryButton:hover, .playBtn:hover { background: var(--brand-gradient); filter: brightness(1.1); }
+.secondaryButton { background: var(--field-bg); border-color: rgba(125, 211, 252, 0.45); color: #BAE6FD; }
+.secondaryButton:hover:not(:disabled) { background: rgba(59, 130, 246, 0.18); }
+
+.toolbar, .panel, .infoCard, .layersSection, .analyticsSection, .mlSection {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  color: var(--text);
+}
+.location { color: #FFFFFF; }
+.infoCard h2, .layersSection h3, .analyticsSection h2, .mlSection h2, .incidentList li b { color: #FFFFFF; }
+.mlValue { color: #5EEAD4; }
+.hazardSelect { background: var(--field-bg); border-color: var(--glass-border); color: var(--text); }
+.hazardSelect option { background: #111827; color: #F3F4F6; }
+
+.mapShell { border-color: var(--glass-border); background: #0B1120; box-shadow: var(--glass-shadow); }
+
+.dataStatusBadge, .continuousLegend, .mapTimelineBar, .mapLegend, .inspectorOverlay {
+  background: var(--glass-raised-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.legendTitle, .inspectorTitle { color: #FFFFFF; }
+.legendLabels, .inspectorDrivers { color: var(--text-light); }
+.inspectorClose { color: var(--text-muted); }
+.inspectorClose:hover { background: rgba(255, 255, 255, 0.08); color: #FFFFFF; }
+.inspectorAction { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+
+.hazardControl button, .timelineChip, .timeline button, .areaList button {
+  background: var(--glass-raised-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  color: var(--text);
+}
+.hazardControl button:hover, .hazardControl .hazardActive, .timelineChip:hover, .timelineChipActive {
+  background: var(--brand-gradient);
+  border-color: transparent;
+  color: #FFFFFF;
+}
+.areaList button:hover { background: rgba(59, 130, 246, 0.18); border-color: rgba(125, 211, 252, 0.5); }
+
+.low, .timeline .low { background-color: rgba(34, 197, 94, 0.16); color: #86EFAC; }
+.moderate, .timeline .moderate { background-color: rgba(245, 158, 11, 0.16); color: #FCD34D; }
+.high, .timeline .high { background-color: rgba(249, 115, 22, 0.18); color: #FDBA74; }
+.severe, .timeline .severe { background-color: rgba(239, 68, 68, 0.2); color: #FCA5A5; }
+.mapLegend .low { background: #22C55E; }
+.mapLegend .moderate { background: #F59E0B; }
+.mapLegend .high { background: #F97316; }
+.mapLegend .severe { background: #EF4444; }
+
+.layerActive { background: rgba(59, 130, 246, 0.16); color: #BFDBFE; }
+.layerUnavailable { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
+.layersSection .layerActive, .layersSection .layerUnavailable { border-color: var(--glass-border); }
+.analyticsMetrics div { background: rgba(255, 255, 255, 0.05); border-color: var(--glass-border); }
+.chartAxis > div { background: linear-gradient(180deg, #3B82F6, #14B8A6); }
+.guidanceNote { background: rgba(255, 255, 255, 0.05); }
+.incidentList li { background: rgba(255, 255, 255, 0.05); border-color: var(--glass-border); }
+/* Sit beside Leaflet's zoom control instead of on top of its "+" button. */
+.dataStatusBadge { left: 58px; }
+/* Bars and labels share the same flex columns so each bar sits over its time label. */
+.chartAxis > div { max-width: none; }

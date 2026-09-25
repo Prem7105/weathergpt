@@ -27,7 +27,12 @@ export default function Header({
         </h1>
       </div>
       <div className="header-actions-group">
-        <Link className="header-btn" href="/risk">
+        <Link
+          className="header-btn"
+          href={currentLoc.latitude != null && currentLoc.longitude != null
+            ? `/risk?${new URLSearchParams({ lat: currentLoc.latitude, lon: currentLoc.longitude, name: currentLoc.displayPrimary || currentLoc.city || '' })}`
+            : '/risk'}
+        >
           Risk map
         </Link>
         <button

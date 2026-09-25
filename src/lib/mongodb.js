@@ -3,8 +3,12 @@ import mongoose from 'mongoose';
 const globalMongoose = globalThis;
 
 if (!globalMongoose.__weathergptMongoose) {
-  globalMongoose.__weathergptMongoose = { conn: null, promise: null };
+  globalMongoose.__weathergptMongoose = { conn: null, promise: null, failedAt: 0, lastError: null };
 }
+
+// After a failed connect, fail fast for a while instead of making every request
+// wait out the full server-selection timeout (which stalled /api/risk ~10s each).
+const RETRY_COOLDOWN_MS = 60000;
 
 export default async function connectDB() {
   const mongodbUri = process.env.MONGODB_URI;
@@ -15,6 +19,9 @@ export default async function connectDB() {
   const cached = globalMongoose.__weathergptMongoose;
 
   if (cached.conn) return cached.conn;
+  if (!cached.promise && cached.failedAt && Date.now() - cached.failedAt < RETRY_COOLDOWN_MS) {
+    throw cached.lastError;
+  }
   if (!cached.promise) {
     cached.promise = mongoose.connect(mongodbUri, {
       dbName: 'weathergpt',
@@ -26,8 +33,11 @@ export default async function connectDB() {
 
   try {
     cached.conn = await cached.promise;
+    cached.failedAt = 0;
   } catch (error) {
     cached.promise = null;
+    cached.failedAt = Date.now();
+    cached.lastError = error;
     throw error;
   }
 

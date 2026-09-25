@@ -3,6 +3,7 @@ import { getSystemStatus } from '@/lib/systemStatus';
 import { validateEnvironment } from '@/lib/envValidator';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // Deliberately excludes all secret values. This endpoint makes configuration
 // state observable to operators without exposing credentials to the browser.

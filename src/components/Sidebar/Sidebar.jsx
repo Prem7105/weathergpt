@@ -1,7 +1,15 @@
 'use client';
 
 import { PERSONA_CONFIG, LANG_OPTIONS } from '@/lib/constants';
+import { UI_I18N } from '@/lib/i18n';
 import WeatherWidget from './WeatherWidget';
+
+// Labels carry their own emoji (already shown above the label), and some languages
+// don't translate every persona, so strip the emoji and fall back to English.
+function personaLabel(i18n, key) {
+  const label = i18n.personas?.[key] || UI_I18N.english.personas[key] || key;
+  return label.replace(/^[^\p{L}\p{N}]+/u, '');
+}
 
 export default function Sidebar({
   mobileSidebarOpen,
@@ -145,7 +153,7 @@ export default function Sidebar({
               onClick={() => setSelectedPersona(key)}
             >
               <span className="persona-card-emoji">{config.emoji}</span>
-              <span>{i18n.personas[key]}</span>
+              <span>{personaLabel(i18n, key)}</span>
             </button>
           ))}
         </div>

@@ -5,6 +5,7 @@ import path from 'path';
 import { queryAuroraForecast, getAuroraServiceInfo } from '@/lib/auroraService';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

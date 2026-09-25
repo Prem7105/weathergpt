@@ -1,4 +1,5 @@
 import './globals.css';
+import './glass-theme.css';
 
 export const metadata = {
   title: 'WeatherGPT — Aapka Mausam, Aapki Bhasha',
@@ -21,7 +22,7 @@ export const metadata = {
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#1565C0',
+  themeColor: '#0B1120',
 };
 
 export default function RootLayout({ children }) {
@@ -35,8 +36,8 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>
-        <script dangerouslySetInnerHTML={{ __html: `if ('serviceWorker' in navigator) { window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); }); }` }} />
+      <body suppressHydrationWarning>
+        <script dangerouslySetInnerHTML={{ __html: `if ('serviceWorker' in navigator) { window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(function (r) { r.update(); }).catch(function () {}); }); }` }} />
         {children}
       </body>
     </html>

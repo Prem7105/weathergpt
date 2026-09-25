@@ -1,0 +1,385 @@
+/* ===== GLASSMORPHISM THEME =====
+   Layered after globals.css: re-skins surfaces and colors onto the existing
+   class names so layout and behaviour stay untouched. Design tokens match the
+   glassmorphism WeatherGPT app (dark #0B1120 base, blue→teal brand, 22px glass). */
+
+:root {
+  --primary: #3B82F6;
+  --primary-light: #60A5FA;
+  --primary-dark: #2563EB;
+  --secondary: #14B8A6;
+  --accent: #F59E0B;
+  --accent-light: #FBBF24;
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --navy: #0B1120;
+  --navy-light: #151F32;
+  --navy-dark: #0B1120;
+  --bg: rgba(255, 255, 255, 0.06);
+  --chat-bg: transparent;
+  --text: #F3F4F6;
+  --text-light: #CBD5E1;
+  --text-muted: #94A3B8;
+  --border: rgba(255, 255, 255, 0.12);
+  --border-light: rgba(255, 255, 255, 0.08);
+  --tint-sunny: transparent;
+  --tint-rainy: transparent;
+  --tint-stormy: transparent;
+  --tint-night: transparent;
+
+  --brand-gradient: linear-gradient(135deg, #3B82F6 0%, #14B8A6 100%);
+  --glass-bg: rgba(17, 24, 39, 0.5);
+  --glass-raised-bg: rgba(17, 24, 39, 0.68);
+  --glass-solid: rgba(15, 23, 42, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: blur(22px) saturate(150%);
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --field-bg: rgba(255, 255, 255, 0.07);
+  --field-bg-focus: rgba(255, 255, 255, 0.11);
+
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.28);
+  --shadow-elevated: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow-deep: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+html, body { background: #0B1120; }
+body { color: var(--text); color-scheme: dark; }
+
+/* ---------- Live weather backdrop ---------- */
+.weather-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #0B1120;
+  pointer-events: none;
+}
+.wb-photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transition: opacity 1.4s ease-out;
+}
+.wb-scrim { position: absolute; inset: 0; z-index: 20; transition: background 1.4s ease; }
+.wb-dim { position: absolute; inset: 0; z-index: 21; background: rgba(11, 17, 32, 0.2); }
+.wb-layer { position: absolute; inset: 0; z-index: 22; overflow: hidden; pointer-events: none; }
+
+.weather-particles-rain {
+  background-image: repeating-linear-gradient(112deg, rgba(220, 234, 255, 0.22) 0px, rgba(220, 234, 255, 0.22) 1px, transparent 1px, transparent 13px);
+  background-size: 140% 140%;
+  animation: weather-rain-fall 0.5s linear infinite;
+  opacity: 0.45;
+}
+@keyframes weather-rain-fall {
+  from { background-position: 0 0; }
+  to { background-position: -32px 90px; }
+}
+.weather-snowflake {
+  position: absolute;
+  top: -5%;
+  border-radius: 9999px;
+  background: #FFFFFF;
+  animation-name: weather-snow-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes weather-snow-fall {
+  from { transform: translate(0, 0); }
+  to { transform: translate(var(--drift), 115vh); }
+}
+.weather-fog-band {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 18%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 35%, rgba(255, 255, 255, 0.18) 55%, transparent 90%);
+  filter: blur(18px);
+  animation-name: weather-fog-drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes weather-fog-drift {
+  0% { transform: translateX(-6%); }
+  50% { transform: translateX(6%); }
+  100% { transform: translateX(-6%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weather-particles-rain, .weather-snowflake, .weather-fog-band {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Keep app chrome above the backdrop */
+.app-wrapper { background: transparent !important; }
+.app-wrapper > .sidebar,
+.app-wrapper > .main-viewport { position: relative; z-index: 1; }
+
+/* ---------- Shared glass surfaces ---------- */
+.sidebar,
+.main-header,
+.weather-overview,
+.welcome-example-card,
+.message-row.ai .message-bubble,
+.typing-pill,
+.forecast-toggles-bar,
+.forecast-slider-container,
+.quick-chips-wrapper,
+.chat-input-bar,
+.pwa-install-prompt,
+.admin-email-form {
+  background: var(--glass-bg) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border) !important;
+  box-shadow: var(--glass-shadow);
+  color: var(--text);
+}
+
+.compare-modal-box,
+.settings-modal-box,
+.account-modal-box,
+.profile-crop-modal,
+.gps-card,
+.location-suggestions {
+  background: var(--glass-raised-bg) !important;
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--shadow-deep);
+  color: var(--text);
+}
+.location-suggestions { background: var(--glass-solid) !important; }
+
+/* ---------- Sidebar ---------- */
+.sidebar { border-right: 1px solid var(--glass-border) !important; border-top: 0 !important; border-bottom: 0 !important; border-left: 0 !important; }
+.brand-title {
+  background: linear-gradient(135deg, #FFFFFF 20%, #7DD3FC 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+.section-heading { color: rgba(255, 255, 255, 0.5); }
+
+.location-input {
+  background: var(--field-bg);
+  color: var(--text);
+  border-color: var(--glass-border);
+}
+.location-input:focus {
+  background: var(--field-bg-focus);
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+.location-input::placeholder { color: var(--text-muted); }
+.search-loading-indicator { color: #7DD3FC; }
+.location-suggestion-item:hover,
+.location-suggestion-item.active { background: rgba(59, 130, 246, 0.16); }
+.location-suggestion-meta,
+.location-search-status { color: var(--text-muted); }
+.location-search-status.error { color: #FCA5A5; }
+
+.persona-card.active {
+  background: var(--brand-gradient);
+  border-color: transparent;
+  color: #FFFFFF;
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.3);
+}
+.persona-card:hover { border-color: rgba(125, 211, 252, 0.5); }
+
+.language-dropdown { background-color: var(--field-bg); border-color: var(--glass-border); }
+.language-dropdown option { background: #111827; color: #F3F4F6; }
+
+.sidebar-weather-widget { background: rgba(255, 255, 255, 0.03); border-top-color: var(--glass-border); }
+.widget-temp-large { background: linear-gradient(135deg, #FFFFFF 0%, #7DD3FC 100%); background-clip: text; -webkit-background-clip: text; }
+
+.header-gps-pill { background: rgba(34, 197, 94, 0.15); color: #86EFAC; border-color: rgba(34, 197, 94, 0.35); }
+
+/* ---------- Main viewport ---------- */
+.main-viewport { background: transparent !important; }
+.chat-scroll-area,
+.chat-scroll-area.sunny,
+.chat-scroll-area.rainy,
+.chat-scroll-area.stormy,
+.chat-scroll-area.night,
+.chat-scroll-area.clear { background: transparent !important; }
+
+.main-header { border-radius: 0; border-top: 0 !important; border-left: 0 !important; border-right: 0 !important; }
+.header-city-title { color: #FFFFFF; }
+.header-condition-pill { color: var(--text-light); }
+
+.header-btn,
+.account-icon-btn {
+  background: var(--field-bg);
+  border-color: var(--glass-border);
+  color: var(--text-light);
+}
+.header-btn:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(125, 211, 252, 0.5); color: #FFFFFF; }
+.header-btn.active { background: var(--brand-gradient); border-color: transparent; color: #FFFFFF; }
+.account-icon-btn:hover,
+.account-icon-btn:focus-visible { background: rgba(59, 130, 246, 0.2); border-color: var(--primary); }
+.main-header a { color: var(--text-light); }
+
+/* Alert banner: dark glass tinted by severity */
+.alert-banner { backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: none; }
+.alert-banner.green { background: linear-gradient(90deg, rgba(34, 197, 94, 0.22), rgba(34, 197, 94, 0.08)); color: #BBF7D0; border-bottom-color: rgba(34, 197, 94, 0.35); }
+.alert-banner.yellow { background: linear-gradient(90deg, rgba(245, 158, 11, 0.26), rgba(245, 158, 11, 0.08)); color: #FDE68A; border-bottom-color: rgba(245, 158, 11, 0.4); }
+.alert-banner.orange { background: linear-gradient(90deg, rgba(249, 115, 22, 0.3), rgba(249, 115, 22, 0.1)); color: #FED7AA; border-bottom-color: rgba(249, 115, 22, 0.45); }
+.alert-banner.red { background: linear-gradient(90deg, rgba(239, 68, 68, 0.38), rgba(239, 68, 68, 0.14)); color: #FECACA; border-bottom-color: rgba(239, 68, 68, 0.5); }
+.alert-banner.blue { background: linear-gradient(90deg, rgba(59, 130, 246, 0.28), rgba(59, 130, 246, 0.08)); color: #BFDBFE; border-bottom-color: rgba(59, 130, 246, 0.4); }
+.alert-safe-zone { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.1); }
+
+/* Current conditions card */
+.weather-overview { border-radius: 16px; }
+.weather-overview-kicker { color: #7DD3FC; }
+.weather-overview-location { color: #FFFFFF; }
+.weather-overview-temp {
+  background: linear-gradient(135deg, #60A5FA 0%, #2DD4BF 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.weather-overview-condition strong,
+.weather-overview-metrics strong { color: #FFFFFF; }
+.weather-overview-metrics { border-left-color: var(--glass-border); }
+.weather-overview-metrics > div { border-right-color: var(--glass-border); }
+.weather-overview-metrics > div:nth-child(-n+2) { border-bottom-color: var(--glass-border); }
+
+/* Welcome */
+.welcome-badge,
+.welcome-persona-tag { background: rgba(59, 130, 246, 0.18); color: #93C5FD; }
+.welcome-title { color: #FFFFFF; }
+.welcome-example-card:hover { border-color: rgba(125, 211, 252, 0.55) !important; box-shadow: 0 0 24px rgba(59, 130, 246, 0.25); }
+
+/* Messages */
+.message-row.user .message-bubble { background: var(--brand-gradient); box-shadow: 0 0 24px rgba(59, 130, 246, 0.25); }
+.message-row.ai .message-bubble { border: 1px solid var(--glass-border); }
+.message-source-badge { background: rgba(255, 255, 255, 0.08); color: var(--text-light); }
+.msg-action-chip { background: var(--field-bg); border-color: var(--glass-border); color: var(--text-light); }
+.msg-action-chip:hover { background: rgba(59, 130, 246, 0.18); border-color: rgba(125, 211, 252, 0.5); color: #FFFFFF; }
+.translation-box { background: rgba(255, 255, 255, 0.06); color: var(--text); box-shadow: none; }
+.translation-header { color: #7DD3FC; }
+.translation-text { color: var(--text-light); }
+.message-bubble a { color: #7DD3FC; }
+
+/* Chips, toggles, input */
+.quick-chip-btn,
+.toggle-forecast-btn {
+  background: var(--field-bg);
+  border-color: var(--glass-border);
+  color: var(--text);
+  box-shadow: none;
+}
+.quick-chip-btn:hover,
+.toggle-forecast-btn:hover { background: rgba(59, 130, 246, 0.18); border-color: rgba(125, 211, 252, 0.5); color: #FFFFFF; }
+.toggle-forecast-btn.active { background: var(--brand-gradient); border-color: transparent; color: #FFFFFF; }
+
+.quick-chips-wrapper,
+.forecast-toggles-bar,
+.forecast-slider-container,
+.chat-input-bar { border-left: 0 !important; border-right: 0 !important; border-bottom: 0 !important; box-shadow: none; }
+
+.message-textarea {
+  background: var(--field-bg);
+  border-color: var(--glass-border);
+  color: var(--text);
+}
+.message-textarea:focus { background: var(--field-bg-focus); border-color: rgba(59, 130, 246, 0.7); }
+.mic-record-btn { background: var(--field-bg); border-color: var(--glass-border); color: var(--text-light); }
+.mic-record-btn:hover { background: rgba(255, 255, 255, 0.14); color: #FFFFFF; }
+.send-msg-btn { background: var(--brand-gradient); box-shadow: 0 0 24px rgba(59, 130, 246, 0.25); }
+.send-msg-btn:hover:not(:disabled) { background: var(--brand-gradient); filter: brightness(1.1); }
+
+/* Forecast cards */
+.daily-forecast-card,
+.hourly-forecast-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+}
+.daily-forecast-card:hover { border-color: rgba(125, 211, 252, 0.5); box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); }
+.daily-day-label,
+.daily-temp-row,
+.hourly-temp-label { color: #FFFFFF; }
+.rain-bar-track { background: rgba(255, 255, 255, 0.1); }
+.hourly-rain-label { color: #5EEAD4; }
+
+/* ---------- Modals ---------- */
+.compare-backdrop,
+.profile-crop-backdrop { background: rgba(3, 7, 18, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.compare-modal-title,
+.compare-card-title,
+.account-profile-name,
+.settings-label,
+.gps-title { color: #FFFFFF; }
+.compare-modal-close:hover { background: rgba(255, 255, 255, 0.08); color: #FFFFFF; }
+.compare-card { background: rgba(255, 255, 255, 0.05); border-color: var(--glass-border); }
+.compare-search-input,
+.settings-input,
+.admin-email-form input,
+.admin-email-form textarea,
+.account-form input,
+.account-form select,
+.account-form textarea,
+.account-details-form input,
+.account-details-form select,
+.account-details-form textarea {
+  background: var(--field-bg);
+  border-color: var(--glass-border);
+  color: var(--text);
+}
+.account-form input::placeholder,
+.account-details-form input::placeholder,
+.compare-search-input::placeholder { color: var(--text-muted); }
+.account-form select option,
+.account-details-form select option { background: #111827; color: #F3F4F6; }
+.compare-quick-chip { background: var(--field-bg); border-color: var(--glass-border); color: var(--text-light); }
+.compare-quick-chip:hover { background: rgba(59, 130, 246, 0.18); color: #FFFFFF; }
+.compare-submit-btn,
+.account-submit-btn,
+.admin-email-form button,
+.pwa-install-button,
+.gps-allow-btn { background: var(--brand-gradient); border-color: transparent; color: #FFFFFF; box-shadow: 0 0 24px rgba(59, 130, 246, 0.25); }
+.compare-submit-btn:hover:not(:disabled),
+.account-submit-btn:hover { background: var(--brand-gradient); filter: brightness(1.1); }
+.gps-allow-btn:hover { box-shadow: 0 0 32px rgba(59, 130, 246, 0.4); }
+
+.gps-overlay { background: rgba(3, 7, 18, 0.55); }
+.gps-icon-ring { background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(20, 184, 166, 0.3)); box-shadow: 0 0 32px rgba(59, 130, 246, 0.3); }
+.gps-deny-btn,
+.pwa-dismiss-button { background: transparent; border-color: var(--glass-border); color: var(--text-light); }
+.gps-deny-btn:hover { background: rgba(255, 255, 255, 0.08); color: #FFFFFF; }
+.gps-detecting-spinner { border-color: rgba(125, 211, 252, 0.25); border-top-color: #7DD3FC; }
+
+.notification-settings { background: rgba(255, 255, 255, 0.05); border-color: var(--glass-border); }
+.notification-settings h3 { color: #FFFFFF; }
+
+.account-mode-tabs { background: rgba(255, 255, 255, 0.06); }
+.account-mode-tabs button.active { background: var(--brand-gradient); color: #FFFFFF; box-shadow: none; }
+.account-form-error { color: #FCA5A5; }
+.reset-channel-options button,
+.category-slide,
+.account-edit-btn { background: var(--field-bg); border-color: var(--glass-border); color: var(--text-light); }
+.reset-channel-options button.selected,
+.category-slide:hover,
+.category-slide.selected { background: rgba(59, 130, 246, 0.2); border-color: rgba(125, 211, 252, 0.6); color: #FFFFFF; }
+.account-details-form { background: rgba(255, 255, 255, 0.04); border-color: var(--glass-border); }
+.account-upload-btn { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); color: #BFDBFE; }
+.account-upload-btn:hover { background: rgba(59, 130, 246, 0.22); }
+.account-logout-btn { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.35); color: #FCA5A5; }
+.account-logout-btn:hover { background: rgba(239, 68, 68, 0.22); }
+.account-profile-avatar { background: rgba(255, 255, 255, 0.08); border-color: var(--glass-border); }
+.profile-crop-frame { background: rgba(255, 255, 255, 0.06); }
+.account-text-btn,
+.otp-phone-row button { color: #7DD3FC; }
+.account-text-btn:hover { color: #BAE6FD; }
+
+/* Mobile + toast */
+.mobile-nav-toggle { background: var(--glass-raised-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); }
+.mobile-backdrop-overlay { background: rgba(3, 7, 18, 0.6); }
+.toast-notification { background: var(--glass-raised-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); }
+
+.admin-email-page { background: transparent; }
+
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
