@@ -8,7 +8,7 @@ const rateLimitMap = new Map();
 
 export async function POST(request) {
   try {
-    const { phoneNumber, alert, persona, language, forceSimulated } = await request.json();
+    const { phoneNumber, alert, persona, language, forceSimulated, channel } = await request.json();
 
     const userId = getSessionUserId();
     if (!userId && forceSimulated !== true) {
@@ -34,7 +34,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'phoneNumber is required.' }, { status: 400 });
     }
 
-    const result = await sendRiskAlert({ phoneNumber, alert, persona, language, forceSimulated });
+    const result = await sendRiskAlert({ phoneNumber, alert, persona, language, forceSimulated, channel: channel === 'whatsapp' ? 'whatsapp' : 'sms' });
     return NextResponse.json(result, { status: result.success ? 200 : 503 });
   } catch (error) {
     console.error('Alert dispatch error:', error);

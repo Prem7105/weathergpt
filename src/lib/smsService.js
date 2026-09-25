@@ -18,7 +18,7 @@ function formatSmsText({ alert, persona = 'citizen', language = 'english' }) {
   return `[WeatherGPT ${level} ${hazard} ALERT]${time} ${action} [Open-Meteo]`.slice(0, 160);
 }
 
-export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', language = 'english', forceSimulated = false }) {
+export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', language = 'english', forceSimulated = false, channel = 'sms' }) {
   if (!phoneNumber) {
     return { success: false, error: 'Phone number is required.' };
   }
@@ -26,22 +26,27 @@ export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', l
   const cleanPhone = String(phoneNumber).trim().replace(/[^\d+]/g, '');
   const smsBody = formatSmsText({ alert, persona, language });
 
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, TWILIO_WHATSAPP_NUMBER } = process.env;
+  const isWhatsApp = channel === 'whatsapp';
+  const fromNumber = isWhatsApp
+    ? (TWILIO_WHATSAPP_NUMBER && (TWILIO_WHATSAPP_NUMBER.startsWith('whatsapp:') ? TWILIO_WHATSAPP_NUMBER : `whatsapp:${TWILIO_WHATSAPP_NUMBER}`))
+    : TWILIO_PHONE_NUMBER;
+  const provider = isWhatsApp ? 'Twilio WhatsApp' : 'Twilio SMS';
 
   // 1. Live Twilio Gateway (if credentials provided and not forced demo)
-  if (!forceSimulated && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER) {
+  if (!forceSimulated && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && fromNumber) {
     try {
       const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
       const message = await client.messages.create({
         body: smsBody,
-        from: TWILIO_PHONE_NUMBER,
-        to: cleanPhone,
+        from: fromNumber,
+        to: isWhatsApp ? `whatsapp:${cleanPhone}` : cleanPhone,
       });
 
       return {
         success: true,
         mode: 'TWILIO-ACCEPTED',
-        provider: 'Twilio SMS',
+        provider,
         messageId: message.sid,
         recipient: cleanPhone,
         body: smsBody,
@@ -63,12 +68,12 @@ export async function sendRiskAlert({ phoneNumber, alert, persona = 'citizen', l
   return {
     success: false,
     mode: forceSimulated ? 'SIMULATED' : 'NOT-CONFIGURED',
-    provider: 'Twilio SMS',
+    provider,
     recipient: cleanPhone,
     body: smsBody,
     note: forceSimulated
-      ? 'Formatting simulation only. No SMS was sent.'
-      : 'Twilio SMS is not configured. No SMS was sent.',
+      ? `Formatting simulation only. No ${isWhatsApp ? 'WhatsApp message' : 'SMS'} was sent.`
+      : `${provider} is not configured. No ${isWhatsApp ? 'WhatsApp message' : 'SMS'} was sent.`,
     timestamp: new Date().toISOString(),
   };
 }

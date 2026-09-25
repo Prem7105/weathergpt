@@ -7,6 +7,9 @@ const LANG_MAP = {
   telugu: 'te',
   marathi: 'mr',
   gujarati: 'gu',
+  kannada: 'kn',
+  punjabi: 'pa',
+  odia: 'or',
   english: 'en'
 };
 

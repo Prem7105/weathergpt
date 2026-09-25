@@ -55,6 +55,9 @@ export const LANG_CODES = {
   telugu: 'te-IN',
   marathi: 'mr-IN',
   gujarati: 'gu-IN',
+  kannada: 'kn-IN',
+  punjabi: 'pa-IN',
+  odia: 'or-IN',
   english: 'en-IN'
 };
 

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import styles from './risk.module.css';
-import WeatherBackdrop from '@/components/UI/WeatherBackdrop';
 
 const DEFAULT_LOCATION = { lat: 19.076, lon: 72.8777, name: 'Mumbai, Maharashtra' };
 
@@ -254,45 +253,26 @@ function levelBadgeColor(level) {
   return '#2e7d32';
 }
 
-// /api/risk returns raw readings rather than condition text, so map them onto the
-// vocabulary WeatherBackdrop understands.
-function skyCondition(w) {
-  if (!w) return 'partly cloudy';
-  if (Number(w.precipitation) >= 0.5) return Number(w.windSpeed) >= 50 ? 'thunderstorm' : 'rain';
-  if (Number(w.cloudCover) >= 85) return 'overcast';
-  if (Number(w.cloudCover) >= 35) return 'partly cloudy';
-  return 'clear';
-}
-
-function isDaytimeAt(localIsoTime) {
-  const hour = Number(String(localIsoTime || '').slice(11, 13));
-  return !Number.isFinite(hour) || !localIsoTime ? true : hour >= 6 && hour < 18;
-}
-
-function initialLocation() {
-  if (typeof window === 'undefined') return DEFAULT_LOCATION;
-  const params = new URLSearchParams(window.location.search);
-  const lat = Number(params.get('lat'));
-  const lon = Number(params.get('lon'));
-  if (!params.get('lat') || !params.get('lon') || !Number.isFinite(lat) || !Number.isFinite(lon)) return DEFAULT_LOCATION;
-  return { lat, lon, name: params.get('name') || `${lat.toFixed(3)}, ${lon.toFixed(3)}` };
-}
-
-export default function RiskMap() {
+export default function RiskMap({ initialLocation = DEFAULT_LOCATION, initialPersona = 'citizen' }) {
   const [location, setLocation] = useState(initialLocation);
+  useEffect(() => {
+    setLocation(initialLocation);
+  }, [initialLocation.lat, initialLocation.lon]); // eslint-disable-line react-hooks/exhaustive-deps
   const [summary, setSummary] = useState(null);
   const [ml, setMl] = useState(null);
   const [grid, setGrid] = useState([]);
   const [status, setStatus] = useState('Loading live Open-Meteo weather signals...');
   const [gpsError, setGpsError] = useState('');
   const [selectedHazard, setSelectedHazard] = useState('flood');
-  const [selectedPersona, setSelectedPersona] = useState('citizen');
+  const [selectedPersona, setSelectedPersona] = useState(initialPersona);
+  useEffect(() => {
+    setSelectedPersona(initialPersona);
+  }, [initialPersona]);
   const [selectedTime, setSelectedTime] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [dataStatus, setDataStatus] = useState('LIVE');
   const [groundReality, setGroundReality] = useState(null);
   const [inspectedLocation, setInspectedLocation] = useState(null);
-  const [liveWeather, setLiveWeather] = useState(null);
 
   const loadRisk = useCallback(async (nextLocation) => {
     setStatus('Loading live Open-Meteo weather signals...');
@@ -318,7 +298,6 @@ export default function RiskMap() {
       setMl(mlData);
       setGrid(summaryData.heatmap?.points || []);
       setGroundReality(summaryData.incidents || null);
-      setLiveWeather(summaryData.weatherProvider || null);
       setDataStatus(summaryData.dataStatus || 'LIVE');
       setStatus(`Live data from ${summaryData.source} · updated ${new Date(summaryData.risk?.assessedAt || Date.now()).toLocaleTimeString()}`);
     } catch {
@@ -437,7 +416,6 @@ export default function RiskMap() {
 
   return (
     <section className={styles.content}>
-      <WeatherBackdrop condition={skyCondition(liveWeather)} isDaytime={isDaytimeAt(liveWeather?.time)} />
       {/* Top Toolbar */}
       <div className={styles.toolbar}>
         <div>

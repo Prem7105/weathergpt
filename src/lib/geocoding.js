@@ -91,6 +91,33 @@ export async function searchLocationAutocomplete(query, options = {}) {
   const { signal } = options;
   const results = [];
 
+  // Open-Meteo's geocoder matches name prefixes ("Guwah" -> Guwahati), which
+  // Nominatim's full-text search does not, so it goes first for as-you-type results.
+  try {
+    const omRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(input)}&count=8&language=en&format=json`, { signal });
+    if (omRes.ok) {
+      const omData = await omRes.json();
+      const places = [...(omData?.results || [])].sort((a, b) => (b.country_code === 'IN') - (a.country_code === 'IN'));
+      for (const r of places) {
+        const record = normalizePlaceRecord({
+          name: r.name,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          formattedAddress: [r.name, r.admin2, r.admin1, r.country].filter(Boolean).join(', '),
+          city: r.name,
+          district: r.admin2 || '',
+          state: r.admin1 || '',
+          country: r.country || '',
+          placeId: `om-${r.id}`,
+        }, input);
+        if (record.latitude != null && record.longitude != null) results.push(record);
+      }
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err;
+    console.warn('Open-Meteo autocomplete failed:', err);
+  }
+
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&namedetails=1&q=${encodeURIComponent(input)}`;
     const res = await fetch(url, {
